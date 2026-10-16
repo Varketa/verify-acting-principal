@@ -40,7 +40,8 @@ test(`an unknown kid is refused against the deployed key set at ${issuer}`, asyn
   const now = Math.floor(Date.now() / 1000);
   const body = enc({ ver: 3, iss: issuer, iat: now, exp: now + 60, jti: `discovery-${now}` });
   const sig = sign("sha256", Buffer.from(`${head}.${body}`), { key: privateKey, dsaEncoding: "ieee-p1363" });
-  // The library's own default fetch, counted, so the one fresh refetch on the unknown kid is asserted.
+  // A counting fetch (no redirect, 10 s, as the library's default; the default is not exported), so the one fresh
+  // refetch on the unknown kid is asserted.
   let jwksFetches = 0;
   const md = await get(issuer + METADATA_PATH);
   const v = new Verifier({ issuer, adopter: "discovery-check", audience: "https://discovery-check.invalid",
