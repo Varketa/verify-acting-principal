@@ -3,6 +3,8 @@ import json
 import threading
 import unittest
 from pathlib import Path
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from varketa_verify_acting_principal import FetchedDocument, InMemoryReplayStore, VerificationError, Verifier
 
@@ -96,6 +98,9 @@ class Vectors(unittest.TestCase):
         for issuer in ("http://api.varketa.ai", "https://api.varketa.ai/", "https://api.varketa.ai/x", "file:///etc/x"):
             with self.subTest(issuer=issuer), self.assertRaisesRegex(ValueError, "https:// origin"):
                 Verifier(**dict(ok, issuer=issuer))
+        for audience in ("http://api.example", "https://api.example/", "https://api.example/x", "https://user:pass@api.example", "https://api.example:99999"):
+            with self.subTest(audience=audience), self.assertRaises(ValueError):
+                Verifier(**dict(ok, audience=audience))
 
     def test_a_segment_with_a_trailing_newline_is_malformed(self) -> None:
         # "AAAA\n" is one the lenient decoder would decode (it drops the newline), so only the alphabet check refuses it.
@@ -117,6 +122,66 @@ class Vectors(unittest.TestCase):
         h.verifier._store = Recording()
         identity, code = h.verify(case["steps"][0])
         self.assertEqual((code, calls), ("", [1]))
+
+    def test_each_document_expires_independently_at_max_age(self) -> None:
+        for suffix in ("", "/jwks.json"):
+            with self.subTest(document=suffix):
+                case = json.loads((DIR / "cases" / "good.json").read_text())
+                url = MANIFEST["config"]["issuer"] + "/.well-known/varketa-acting-principal" + suffix
+                case["fetches"][url][0]["cache_control"] = "max-age=1"
+                case["fetches"][url].append({"status": 503})
+                h = Harness(case)
+                step = case["steps"][0]
+                self.assertEqual(h.verify(step)[1], "")
+                previous = json.loads((DIR / "cases" / "previous-key.json").read_text())["steps"][0]
+                self.assertEqual(h.verify(dict(previous, now=step["now"] + 1))[1], "jwks_unavailable")
+                self.assertEqual(h.counts[url], 2)
+
+    def test_discovery_that_expires_during_its_fetch_is_unavailable(self) -> None:
+        case = json.loads((DIR / "cases" / "good.json").read_text())
+        h = Harness(case)
+        fetch = h.fetch
+
+        def delayed(url):
+            r = fetch(url)
+            if url.endswith("jwks.json"):
+                h.now += 2
+            return FetchedDocument(r.status, "max-age=1", r.body)
+
+        h.verifier._fetch = delayed
+        self.assertEqual(h.verify(case["steps"][0])[1], "jwks_unavailable")
+
+    def test_json_segments_require_utf8(self) -> None:
+        from varketa_verify_acting_principal import _object
+        for body in (b'{"a":"\xff"}', '{"a":1}'.encode("utf-16"), b'\xef\xbb\xbf{}'):
+            with self.subTest(body=body), self.assertRaises(VerificationError):
+                _object(body)
+
+    def test_replay_store_releases_a_key_at_its_exclusive_ttl_boundary(self) -> None:
+        store = InMemoryReplayStore(single_instance=True)
+        self.assertTrue(store.set_if_absent("key", 2, 100))
+        self.assertFalse(store.set_if_absent("key", 2, 101))
+        self.assertTrue(store.set_if_absent("key", 2, 102))
+
+    def test_integer_valued_json_numbers_are_not_fractional(self) -> None:
+        case = json.loads((DIR / "cases" / "good.json").read_text())
+        step = case["steps"][0]
+        claims = json.loads(b64(step["assertion"].split(".")[1]))
+        for field in ("ver", "iat", "exp"):
+            claims[field] = float(claims[field])
+        key = Ed25519PrivateKey.generate()
+
+        def enc(raw):
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+        head = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "test"}).encode())
+        body = enc(json.dumps(claims).encode())
+        sig = enc(key.sign(f"{head}.{body}".encode()))
+        case["fetches"][JWKS][0]["body"]["keys"] = [{"kid": "test", "kty": "OKP", "crv": "Ed25519",
+            "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]
+        identity, code = Harness(case).verify(dict(step, assertion=f"{head}.{body}.{sig}"))
+        self.assertEqual(code, "")
+        self.assertEqual(identity, step["expect"]["identity"])
 
 
 if __name__ == "__main__":
