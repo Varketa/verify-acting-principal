@@ -34,8 +34,8 @@ It also REQUIRES a replay store (§5). There is no silent default.
 
 ## 3. Check, in this order
 
-Refuse at the first failing check with its code. The order is normative: a vector breaks exactly one check, and its
-code depends on the order.
+Refuse at the first failing check with its code. The order is normative: a vector can break more than one check, and
+its code is the first one it breaks.
 
 | # | Check | Code |
 |---|---|---|
