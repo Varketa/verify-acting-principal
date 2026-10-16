@@ -55,7 +55,7 @@ its code is the first one it breaks.
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` is present | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.

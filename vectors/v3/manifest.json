@@ -49,6 +49,8 @@
     "key-type-mismatch",
     "unknown-kid",
     "no-jti",
+    "no-tenant",
+    "no-subject",
     "malformed",
     "absent",
     "jwks-stale",

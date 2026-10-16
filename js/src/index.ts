@@ -32,7 +32,7 @@ export class VerificationError extends Error {
   }
 }
 
-/** A fetched document. `fetchDocument` must not follow a redirect to another origin. */
+/** A fetched document. `fetchDocument` must not follow a redirect. */
 export interface FetchedDocument { status: number; cacheControl: string | null; body: string }
 export type FetchDocument = (url: string) => Promise<FetchedDocument>;
 
@@ -229,14 +229,15 @@ export class Verifier {
     if (str("htm") !== req.method) throw new VerificationError("htm");
     if (str("htu") !== this.#requestUrl(req.url)) throw new VerificationError("htu");
     if (str("bdy") !== createHash("sha256").update(body).digest("base64url")) throw new VerificationError("bdy");
-    const jti = str("jti");
-    if (!jti) throw new VerificationError("malformed");
+    const jti = str("jti"), tenant = str("tenant");
+    // The claims Varketa never omits and an API authorizes on: the jti, the tenant, and the subject or grant.
+    if (!jti || !tenant || (!str("sub") && !str("grant"))) throw new VerificationError("malformed");
     // LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
     // The record lives through the last accepted second, exp + 60 s inclusive: a whole number of seconds, at least 1.
     if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, exp + SKEW - at + 1, at))) {
       throw new VerificationError("replay");
     }
-    const id: Identity = { tenant: str("tenant") ?? "", adopter: this.#o.adopter };
+    const id: Identity = { tenant, adopter: this.#o.adopter };
     for (const k of ["sub", "grant", "persona", "act_kind", "presence", "run_id"] as const) {
       const v = str(k);
       if (v !== undefined) id[k] = v;

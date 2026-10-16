@@ -274,14 +274,15 @@ class Verifier:
             raise VerificationError("htu")
         if s("bdy") != bdy:
             raise VerificationError("bdy")
-        jti = s("jti")
-        if not jti:
+        jti, tenant = s("jti"), s("tenant")
+        # The claims Varketa never omits and an API authorizes on: the jti, the tenant, and the subject or grant.
+        if not jti or not tenant or not (s("sub") or s("grant")):
             raise VerificationError("malformed")
         # LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
         # The record lives through the last accepted second, exp + 60 s inclusive: whole seconds, at least 1.
         if not self._store.set_if_absent(f"{self._issuer}\0{jti}", exp + _SKEW - at + 1, at):
             raise VerificationError("replay")
-        identity: dict[str, Any] = {"tenant": s("tenant") or "", "adopter": self._adopter}
+        identity: dict[str, Any] = {"tenant": tenant, "adopter": self._adopter}
         for k in ("sub", "grant", "persona", "act_kind", "presence", "run_id"):
             if s(k) is not None:
                 identity[k] = s(k)

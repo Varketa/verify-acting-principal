@@ -1,0 +1,65 @@
+{
+  "name": "no-tenant",
+  "description": "No tenant: an assertion naming no org to authorize against is refused.",
+  "fetches": {
+    "https://issuer.example/.well-known/varketa-acting-principal": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "issuer": "https://issuer.example",
+          "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+          "signing_alg_values_supported": [
+            "ES256",
+            "EdDSA"
+          ],
+          "ver_values_supported": [
+            3
+          ]
+        }
+      }
+    ],
+    "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "keys": [
+            {
+              "use": "sig",
+              "kty": "EC",
+              "kid": "v3-current",
+              "crv": "P-256",
+              "alg": "ES256",
+              "x": "DBT59JqkkJczG_4i4697LuWRmfVPjxCd0UbvgCuuE9Q",
+              "y": "r0SQ_4QWlog7Y3euXSbWan07E_cHDoG61hDgDlbY0l0"
+            },
+            {
+              "use": "sig",
+              "kty": "OKP",
+              "kid": "v3-previous",
+              "crv": "Ed25519",
+              "alg": "EdDSA",
+              "x": "bdcHdnuYcb5YBTbO37PA9ZspRFb7tVs2EmnHCM2Ga1k"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "now": 1767225610,
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLWN1cnJlbnQiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktbm8tdGVuYW50IiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImludGVyYWN0aXZlIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJzdWIiOiJ1c2VyLTciLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjozfQ.MOgtY3q_64CxoHLmszcaHrgEkwBbdd6SGAc_vB-iS9yuUiF9I_8fEKco--NWnxLy1TVU9hUyRVoqShPXYM1LLA",
+      "expect": {
+        "accept": false,
+        "code": "malformed"
+      }
+    }
+  ]
+}
