@@ -1,6 +1,6 @@
 {
   "name": "refused-is-not-recorded",
-  "description": "A refused assertion's jti is not recorded: refused at aud (another assertion with the same jti), then this one at htm and at bdy (the last claim check), and then accepted.",
+  "description": "A refused assertion's jti is not recorded: refused at aud (another assertion with the same jti), then this one at htm and at bdy (the last request-binding check), and then accepted.",
   "fetches": {
     "https://issuer.example/.well-known/varketa-acting-principal": [
       {
