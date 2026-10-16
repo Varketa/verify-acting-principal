@@ -1,0 +1,58 @@
+{
+  "version": "v3",
+  "claim_set_ver": 3,
+  "header": "Varketa-Acting-Principal",
+  "typ": "varketa-acting-principal+jwt",
+  "algorithms": [
+    "ES256",
+    "ES384",
+    "EdDSA"
+  ],
+  "skew_seconds": 60,
+  "max_lifetime_seconds": 120,
+  "config": {
+    "issuer": "https://issuer.example",
+    "adopter": "11111111-1111-4111-8111-111111111111",
+    "audience": "https://api.adopter.example"
+  },
+  "key_thumbprints": {
+    "impostor (signs as v3-current)": "O1MgkYpReu80A0T7su4mCepJpEcmqGh5sYIRrBBvkB8",
+    "v3-current": "WdTS2PLildv4PLD0sySQszSZuT2UWazB9uypnLYlSk4",
+    "v3-es384": "CtX55dY8R6TtUk9HTz6i8ly28_iylXcNOAieZk-3Lwk",
+    "v3-next": "UVHF0TRPKhAGEWqEBcXikHUFsgtJux5qLYa_jzi-HK0",
+    "v3-previous": "fY4g2PV7c_sYvxzmCxUJf-8PBHyvDUhRufwLPghcDn8",
+    "v3-throwaway": "YqrHKhU7rTNQ17ktYVwHOP5Ggg4YX7A2Adf7sDGU35c"
+  },
+  "cases": [
+    "good",
+    "probe",
+    "previous-key",
+    "es384",
+    "iat-within-skew",
+    "exp-within-skew",
+    "expired",
+    "not-yet-valid",
+    "lifetime",
+    "wrong-aud",
+    "another-adopter",
+    "wrong-htu",
+    "wrong-htm",
+    "wrong-bdy",
+    "wrong-iss",
+    "unknown-ver",
+    "fractional-ver",
+    "wrong-typ",
+    "alg-none",
+    "alg-rs256",
+    "alg-hs256",
+    "bad-signature",
+    "unknown-kid",
+    "no-jti",
+    "malformed",
+    "absent",
+    "jwks-stale",
+    "rotation",
+    "replay",
+    "refused-is-not-recorded"
+  ]
+}

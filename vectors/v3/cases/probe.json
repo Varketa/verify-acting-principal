@@ -1,0 +1,77 @@
+{
+  "name": "probe",
+  "description": "Varketa's verification probe: probe is true, so the API must act on no real data.",
+  "fetches": {
+    "https://issuer.example/.well-known/varketa-acting-principal": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "issuer": "https://issuer.example",
+          "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+          "signing_alg_values_supported": [
+            "ES256",
+            "EdDSA"
+          ],
+          "ver_values_supported": [
+            3
+          ]
+        }
+      }
+    ],
+    "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "keys": [
+            {
+              "use": "sig",
+              "kty": "EC",
+              "kid": "v3-current",
+              "crv": "P-256",
+              "alg": "ES256",
+              "x": "DBT59JqkkJczG_4i4697LuWRmfVPjxCd0UbvgCuuE9Q",
+              "y": "r0SQ_4QWlog7Y3euXSbWan07E_cHDoG61hDgDlbY0l0"
+            },
+            {
+              "use": "sig",
+              "kty": "OKP",
+              "kid": "v3-previous",
+              "crv": "Ed25519",
+              "alg": "EdDSA",
+              "x": "bdcHdnuYcb5YBTbO37PA9ZspRFb7tVs2EmnHCM2Ga1k"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "now": 1767225610,
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLWN1cnJlbnQiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktcHJvYmUiLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiZGVsZWdhdGVkIiwicHJvYmUiOnRydWUsInNjb3BlX2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGVzIjpbInJlY29yZHMucmVhZCIsInJlY29yZHMud3JpdGUiXSwic3ViIjoidmFya2V0YS1wcm9iZSIsInRlbmFudCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInRvb2xfZGVjbGFyZWQiOiJjcmVhdGVfcmVjb3JkIiwidG9vbF9xdWFsaWZpZWQiOiJyMS1yZWNvcmRzLWNyZWF0ZV9yZWNvcmQiLCJ2ZXIiOjN9.nPCwF0M89q0fz-Hy7ZD1U6CHq3aPvHhk2npAVQbr6Z2A5DCkBbML1wTCeix25GnTEErF6SdWfuVCVF8Wgd7E4Q",
+      "expect": {
+        "accept": true,
+        "identity": {
+          "act_kind": "person",
+          "adopter": "11111111-1111-4111-8111-111111111111",
+          "persona": "support",
+          "presence": "delegated",
+          "probe": true,
+          "scopes": [
+            "records.read",
+            "records.write"
+          ],
+          "sub": "varketa-probe",
+          "tenant": "22222222-2222-4222-8222-222222222222"
+        }
+      }
+    }
+  ]
+}
