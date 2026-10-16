@@ -46,6 +46,7 @@
     "alg-rs256",
     "alg-hs256",
     "bad-signature",
+    "key-type-mismatch",
     "unknown-kid",
     "no-jti",
     "malformed",
