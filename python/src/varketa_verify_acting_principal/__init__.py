@@ -80,13 +80,13 @@ class InMemoryReplayStore:
     def set_if_absent(self, key: str, ttl_seconds: int, now: int) -> bool:
         with self._lock:
             until = self._seen.get(key)
-            if until is not None and now <= until:
+            if until is not None and now < until:
                 return False
             self._seen[key] = now + ttl_seconds
             # Expired records are swept every 1024 inserts, so the store holds about one assertion lifetime of jtis.
             self._inserts += 1
             if self._inserts % 1024 == 0:
-                for k in [k for k, u in self._seen.items() if u < now]:
+                for k in [k for k, u in self._seen.items() if u <= now]:
                     del self._seen[k]
             return True
 
@@ -124,7 +124,7 @@ def _b64url(s: str) -> bytes:
 
 def _object(b: bytes) -> dict[str, Any]:
     try:
-        v = json.loads(b)
+        v = json.loads(b.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as e:
         raise VerificationError("malformed") from e
     if not isinstance(v, dict):
@@ -155,9 +155,14 @@ class Verifier:
                 raise ValueError(f"verify-acting-principal: {name} is required")
         if replay_store is None:
             raise ValueError("verify-acting-principal: replay_store is required (no silent default)")
-        parsed = urllib.parse.urlsplit(issuer)
-        if parsed.scheme != "https" or not parsed.netloc or f"https://{parsed.netloc}" != issuer:
-            raise ValueError("verify-acting-principal: issuer must be an https:// origin, e.g. https://api.varketa.ai")
+        for name, value in (("issuer", issuer), ("audience", audience)):
+            parsed = urllib.parse.urlsplit(value)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username is not None \
+                    or parsed.password is not None or f"https://{parsed.netloc}" != value \
+                    or any(c.isspace() or c == "\\" for c in value):
+                raise ValueError(f"verify-acting-principal: {name} must be an https:// origin")
+            # Accessing port also refuses invalid or out-of-range ports at construction.
+            parsed.port
         self._issuer, self._adopter, self._audience, self._store = issuer, adopter, audience, replay_store
         self._clock = clock or (lambda: int(time.time()))
         self._fetch = fetch_document or _default_fetch
@@ -177,7 +182,7 @@ class Verifier:
         return r if r.status == 200 else None
 
     def _load(self, now: int) -> bool:
-        if not self._jwks_uri or now - self._md_fetched_at > self._md_max_age:
+        if not self._jwks_uri or now - self._md_fetched_at >= self._md_max_age:
             md = self._get(self._issuer + METADATA_PATH)
             try:
                 doc = _object(md.body) if md else None
@@ -199,9 +204,12 @@ class Verifier:
         self._fetched_at, self._max_age = now, _max_age(r.cache_control)
         return True
 
-    def _key_for(self, kid: str, now: int) -> Optional[dict[str, Any]]:
+    def _key_for(self, kid: str) -> Optional[dict[str, Any]]:
         with self._lock:
-            if self._keys is None or now - self._fetched_at > self._max_age:
+            # Another verifier thread may have held the lock while fetching.
+            now = self._clock()
+            if self._keys is None or now - self._fetched_at >= self._max_age \
+                    or now - self._md_fetched_at >= self._md_max_age:
                 if not self._load(now):
                     raise VerificationError("jwks_unavailable")
             jwk = self._keys.get(kid) if self._keys else None
@@ -209,11 +217,14 @@ class Verifier:
                 self._last_refetch = now
                 if self._load(now) and self._keys:
                     jwk = self._keys.get(kid)
+            at = self._clock()
+            if (self._md_max_age > 0 and at - self._md_fetched_at >= self._md_max_age) \
+                    or (self._max_age > 0 and at - self._fetched_at >= self._max_age):
+                raise VerificationError("jwks_unavailable")
             return jwk
 
     def verify(self, *, method: str, url: str, body: Union[bytes, str], assertion: Optional[str]) -> dict[str, Any]:
         """Verify one request's assertion and return the identity to authorize against, or raise VerificationError."""
-        now = self._clock()
         parts = (assertion or "").split(".")
         if len(parts) != 3:
             raise VerificationError("malformed")
@@ -223,7 +234,7 @@ class Verifier:
         alg = header.get("alg")
         if not isinstance(alg, str) or alg not in _ALGORITHMS:
             raise VerificationError("alg")
-        jwk = self._key_for(header.get("kid") if isinstance(header.get("kid"), str) else "", now)
+        jwk = self._key_for(header.get("kid") if isinstance(header.get("kid"), str) else "")
         if jwk is None:
             raise VerificationError("kid")
         signed, sig = f"{parts[0]}.{parts[1]}".encode(), _b64url(parts[2])
@@ -249,6 +260,9 @@ class Verifier:
 
         def n(k: str) -> Optional[int]:
             v = c.get(k)
+            # JSON 3.0 and 3e0 denote integers too, as in the JavaScript verifier.
+            if isinstance(v, float) and v.is_integer():
+                return int(v)
             return v if isinstance(v, int) and not isinstance(v, bool) else None
 
         iat, exp = n("iat"), n("exp")

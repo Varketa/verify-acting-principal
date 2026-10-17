@@ -54,11 +54,11 @@ export class InMemoryReplayStore implements ReplayStore {
   }
   async setIfAbsent(key: string, ttlSeconds: number, now: number): Promise<boolean> {
     const until = this.#seen.get(key);
-    if (until !== undefined && now <= until) return false;
+    if (until !== undefined && now < until) return false;
     this.#seen.set(key, now + ttlSeconds);
     // Expired records are swept every 1024 inserts, so the store holds about one assertion lifetime of jtis.
     if (++this.#inserts % 1024 === 0) {
-      for (const [k, u] of this.#seen) if (u < now) this.#seen.delete(k);
+      for (const [k, u] of this.#seen) if (u <= now) this.#seen.delete(k);
     }
     return true;
   }
@@ -97,7 +97,8 @@ const defaultFetch: FetchDocument = async (url) => {
     if (size > MAX_DOCUMENT_BYTES) throw new Error(`${url}: document over ${MAX_DOCUMENT_BYTES} bytes`);
     chunks.push(chunk);
   }
-  return { status: r.status, cacheControl: r.headers.get("cache-control"), body: Buffer.concat(chunks).toString("utf8") };
+  return { status: r.status, cacheControl: r.headers.get("cache-control"),
+    body: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)) };
 };
 
 function maxAge(cacheControl: string | null): number {
@@ -106,13 +107,13 @@ function maxAge(cacheControl: string | null): number {
 }
 
 function b64url(s: string): Buffer {
-  if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new VerificationError("malformed");
+  if (/[^A-Za-z0-9_-]/.test(s) || s.length % 4 === 1) throw new VerificationError("malformed");
   return Buffer.from(s, "base64url");
 }
 
 function json(b: Buffer): Record<string, unknown> {
   try {
-    const v = JSON.parse(b.toString("utf8"));
+    const v = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(b));
     if (v === null || typeof v !== "object" || Array.isArray(v)) throw new Error();
     return v as Record<string, unknown>;
   } catch {
@@ -132,16 +133,19 @@ export class Verifier {
   #fetchedAt = 0;
   #maxAge = 0;
   #lastRefetch: number | null = null;
+  #loading: Promise<boolean> | null = null;
 
   constructor(options: Options) {
     for (const k of ["issuer", "adopter", "audience"] as const) {
       if (typeof options?.[k] !== "string" || options[k].trim() === "") throw new Error(`verify-acting-principal: ${k} is required`);
     }
     if (!options.replayStore) throw new Error("verify-acting-principal: replayStore is required (no silent default)");
-    let origin = "";
-    try { origin = new URL(options.issuer).origin; } catch { /* refused below */ }
-    if (!options.issuer.startsWith("https://") || origin !== options.issuer) {
-      throw new Error("verify-acting-principal: issuer must be an https:// origin, e.g. https://api.varketa.ai");
+    for (const k of ["issuer", "audience"] as const) {
+      let origin = "";
+      try { origin = new URL(options[k]).origin; } catch { /* refused below */ }
+      if (!options[k].startsWith("https://") || origin !== options[k]) {
+        throw new Error(`verify-acting-principal: ${k} must be an https:// origin`);
+      }
     }
     this.#o = { issuer: options.issuer, adopter: options.adopter, audience: options.audience, replayStore: options.replayStore };
     this.#fetch = options.fetchDocument ?? defaultFetch;
@@ -150,7 +154,14 @@ export class Verifier {
   }
 
   async #load(now: number): Promise<boolean> {
-    if (this.#jwksUri === "" || now - this.#mdFetchedAt > this.#mdMaxAge) {
+    // Concurrent requests share one discovery transaction, so an older key fetch cannot overwrite a newer one.
+    if (this.#loading) return this.#loading;
+    this.#loading = this.#reload(now);
+    try { return await this.#loading; } finally { this.#loading = null; }
+  }
+
+  async #reload(now: number): Promise<boolean> {
+    if (this.#jwksUri === "" || now - this.#mdFetchedAt >= this.#mdMaxAge) {
       const md = await this.#get(this.#o.issuer + METADATA_PATH);
       if (!md) return false;
       let doc: Record<string, unknown>;
@@ -188,7 +199,7 @@ export class Verifier {
     if (header.typ !== TYP) throw new VerificationError("typ");
     const alg = typeof header.alg === "string" ? ALGORITHMS[header.alg] : undefined;
     if (!alg || !Object.hasOwn(ALGORITHMS, header.alg as string)) throw new VerificationError("alg");
-    if (this.#keys === null || now - this.#fetchedAt > this.#maxAge) {
+    if (this.#keys === null || now - this.#fetchedAt >= this.#maxAge || now - this.#mdFetchedAt >= this.#mdMaxAge) {
       if (!(await this.#load(now))) throw new VerificationError("jwks_unavailable");
     }
     const kid = typeof header.kid === "string" ? header.kid : "";
@@ -197,6 +208,10 @@ export class Verifier {
       this.#lastRefetch = now;
       if (await this.#load(now)) jwk = this.#keys?.get(kid);
     }
+    // A network wait may itself consume the documents' positive cache lifetime.
+    const keyAt = this.#clock();
+    if ((this.#mdMaxAge > 0 && keyAt - this.#mdFetchedAt >= this.#mdMaxAge) ||
+        (this.#maxAge > 0 && keyAt - this.#fetchedAt >= this.#maxAge)) throw new VerificationError("jwks_unavailable");
     if (!jwk) throw new VerificationError("kid");
     let key: KeyObject;
     try {
