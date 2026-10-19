@@ -4,8 +4,8 @@
 |---|---|
 | Repository | `Varketa/verify-acting-principal` |
 | Packages | npm `@varketa/verify-acting-principal`, PyPI `varketa-verify-acting-principal` (not yet published) |
-| Claim-set versions accepted | `ver` 3 |
-| Vector version | `v3` |
+| Claim-set versions accepted | `ver` 3 and 4 (0.2.0) |
+| Vector version | `v4`, and `v3` with `unknown-ver` superseded |
 | Metadata path | `<issuer>/.well-known/varketa-acting-principal` |
 
 - **Semver, tied to `ver`.** Accepting a new `ver` is a minor release; dropping one is a major release.

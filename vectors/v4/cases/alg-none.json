@@ -1,0 +1,65 @@
+{
+  "name": "alg-none",
+  "description": "alg none, with an empty signature.",
+  "fetches": {
+    "https://issuer.example/.well-known/varketa-acting-principal": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "issuer": "https://issuer.example",
+          "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+          "signing_alg_values_supported": [
+            "ES256",
+            "EdDSA"
+          ],
+          "ver_values_supported": [
+            4
+          ]
+        }
+      }
+    ],
+    "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "keys": [
+            {
+              "use": "sig",
+              "kty": "EC",
+              "kid": "v3-current",
+              "crv": "P-256",
+              "alg": "ES256",
+              "x": "KczrvPvJHomI3wyaOUKboMUSnkJzLEEqShaCUkFlz9I",
+              "y": "PrajkBB-jjuS10rKvkltJs0ZnMm77aPkb8BNFubFgAg"
+            },
+            {
+              "use": "sig",
+              "kty": "OKP",
+              "kid": "v3-previous",
+              "crv": "Ed25519",
+              "alg": "EdDSA",
+              "x": "8qsSAPdm3qVn9v8uHs1-48XVp3lU2FHfddO2sdBdIcQ"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "now": 1767225610,
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJub25lIiwia2lkIjoidjMtY3VycmVudCIsInR5cCI6InZhcmtldGEtYWN0aW5nLXByaW5jaXBhbCtqd3QifQ.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktandzIiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImludGVyYWN0aXZlIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJzdWIiOiJ1c2VyLTciLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjo0fQ.",
+      "expect": {
+        "accept": false,
+        "code": "alg"
+      }
+    }
+  ]
+}

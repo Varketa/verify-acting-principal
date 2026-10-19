@@ -4,7 +4,8 @@ Verify the `Varketa-Acting-Principal` header on an API that Varketa's agents cal
 call is made and for which of your customer orgs, bound to that one request.
 
 - [SPEC.md](SPEC.md): the language-neutral specification.
-- [vectors/v3](vectors/v3): the signed test vectors, the normative half. Every library here passes all of them.
+- [vectors/v4](vectors/v4) and [vectors/v3](vectors/v3): the signed test vectors, the normative half. Every library
+  here passes both, `v3`'s `unknown-ver` superseded ([SPEC §6](SPEC.md#6-the-vectors)).
 - [js](js): TypeScript / Node (`@varketa/verify-acting-principal`), no runtime dependencies.
 - [python](python): Python (`varketa-verify-acting-principal`), on `cryptography`.
 

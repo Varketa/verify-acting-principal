@@ -1,0 +1,65 @@
+{
+  "name": "absent",
+  "description": "No assertion header at all.",
+  "fetches": {
+    "https://issuer.example/.well-known/varketa-acting-principal": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "issuer": "https://issuer.example",
+          "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+          "signing_alg_values_supported": [
+            "ES256",
+            "EdDSA"
+          ],
+          "ver_values_supported": [
+            4
+          ]
+        }
+      }
+    ],
+    "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "keys": [
+            {
+              "use": "sig",
+              "kty": "EC",
+              "kid": "v3-current",
+              "crv": "P-256",
+              "alg": "ES256",
+              "x": "KczrvPvJHomI3wyaOUKboMUSnkJzLEEqShaCUkFlz9I",
+              "y": "PrajkBB-jjuS10rKvkltJs0ZnMm77aPkb8BNFubFgAg"
+            },
+            {
+              "use": "sig",
+              "kty": "OKP",
+              "kid": "v3-previous",
+              "crv": "Ed25519",
+              "alg": "EdDSA",
+              "x": "8qsSAPdm3qVn9v8uHs1-48XVp3lU2FHfddO2sdBdIcQ"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "now": 1767225610,
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "",
+      "expect": {
+        "accept": false,
+        "code": "malformed"
+      }
+    }
+  ]
+}

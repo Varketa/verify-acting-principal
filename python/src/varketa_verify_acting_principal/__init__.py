@@ -1,6 +1,6 @@
-"""Verify the Varketa-Acting-Principal header, claim set version 3.
+"""Verify the Varketa-Acting-Principal header, claim set versions 3 and 4.
 
-The normative half is SPEC.md and vectors/v3 at the repository root; this module follows the spec's order.
+The normative half is SPEC.md and vectors/v4 at the repository root; this module follows the spec's order.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ __all__ = [
 
 HEADER = "Varketa-Acting-Principal"
 TYP = "varketa-acting-principal+jwt"
-SUPPORTED_VERSIONS = (3,)
+SUPPORTED_VERSIONS = (3, 4)
 METADATA_PATH = "/.well-known/varketa-acting-principal"
 _ALGORITHMS = {
     "ES256": (hashes.SHA256, "EC", "P-256", ec.SECP256R1, 32),
@@ -292,6 +292,16 @@ class Verifier:
         # The claims Varketa never omits and an API authorizes on: the jti, the tenant, and the subject or grant.
         if not jti or not tenant or not (s("sub") or s("grant")):
             raise VerificationError("malformed")
+        # A PRESENT sub_id is exactly RFC 9493's iss_sub, its iss and sub non-empty strings, or the assertion is
+        # malformed: a verifier never exposes half a subject.
+        sub_id: Optional[dict[str, str]] = None
+        if "sub_id" in c:
+            v = c["sub_id"]
+            if (not isinstance(v, dict) or len(v) != 3 or v.get("format") != "iss_sub"
+                    or not isinstance(v.get("iss"), str) or not v["iss"]
+                    or not isinstance(v.get("sub"), str) or not v["sub"]):
+                raise VerificationError("malformed")
+            sub_id = {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
         # LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
         # The record lives through the last accepted second, exp + 60 s inclusive: whole seconds, at least 1.
         if not self._store.set_if_absent(f"{self._issuer}\0{jti}", exp + _SKEW - at + 1, at):
@@ -306,4 +316,6 @@ class Verifier:
             identity["approved_by"] = c["approved_by"]
         if c.get("probe") is True:
             identity["probe"] = True
+        if sub_id is not None:
+            identity["sub_id"] = sub_id
         return identity

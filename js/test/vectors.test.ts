@@ -1,11 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { join } from "node:path";
 import { Verifier, InMemoryReplayStore, VerificationError, type FetchedDocument } from "../src/index.ts";
 
-const dir = join(import.meta.dirname, "..", "..", "vectors", "v3");
+const vectors = join(import.meta.dirname, "..", "..", "vectors");
+// The current set, which the tests below the vectors also read.
+const dir = join(vectors, "v4");
 const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+// Each accepted claim-set version's set, and the cases a later version supersedes, each with its reason. A superseded
+// case is not skipped: its refusal no longer holds, so its first step must now be accepted.
+const SETS: { version: string; superseded: Record<string, string> }[] = [
+  { version: "v4", superseded: {} },
+  // v3's unknown-ver presents ver 4, unknown when v3 was cut and accepted since; v4's unknown-ver presents ver 5.
+  { version: "v3", superseded: { "unknown-ver": "ver 4 is a known claim set since v4" } },
+];
 
 interface Step {
   now: number;
@@ -15,11 +25,11 @@ interface Step {
 }
 interface Case { name: string; fetches: Record<string, { status: number; cache_control?: string; body?: unknown }[]>; steps: Step[] }
 
-function harness(c: Case) {
+function harness(c: Case, m = manifest) {
   const counts = new Map<string, number>();
   let now = 0;
   const v = new Verifier({
-    ...manifest.config,
+    ...m.config,
     replayStore: new InMemoryReplayStore({ singleInstance: true }),
     clock: () => now,
     fetchDocument: async (url: string): Promise<FetchedDocument> => {
@@ -34,38 +44,51 @@ function harness(c: Case) {
   return { v, counts, setNow: (t: number) => { now = t; } };
 }
 
-test("the case set is the manifest's", () => {
-  const files = readdirSync(join(dir, "cases")).map((f) => f.replace(/\.json$/, "")).sort();
-  assert.deepEqual(files, [...manifest.cases].sort());
-});
+for (const set of SETS) {
+  const setDir = join(vectors, set.version);
+  const setManifest = JSON.parse(readFileSync(join(setDir, "manifest.json"), "utf8"));
 
-for (const name of manifest.cases as string[]) {
-  test(`vector ${name}`, async () => {
-    const c: Case = JSON.parse(readFileSync(join(dir, "cases", `${name}.json`), "utf8"));
-    const h = harness(c);
-    for (const [i, s] of c.steps.entries()) {
-      h.setNow(s.now);
-      const req = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: s.assertion };
-      let code = "";
-      let identity: unknown;
-      try {
-        identity = await h.v.verify(req);
-      } catch (e) {
-        if (!(e instanceof VerificationError)) throw e;
-        code = e.code;
-      }
-      if (s.expect.accept) {
-        assert.equal(code, "", `step ${i} refused`);
-        assert.deepEqual(identity, s.expect.identity, `step ${i} identity`);
-      } else {
-        assert.equal(code, s.expect.code, `step ${i} code`);
-      }
-      if (s.expect.jwks_fetches) {
-        const jwks = `${manifest.config.issuer}/.well-known/varketa-acting-principal/jwks.json`;
-        assert.equal(h.counts.get(jwks), s.expect.jwks_fetches, `step ${i} key-set fetches`);
-      }
-    }
+  test(`${set.version}: the case set is the manifest's`, () => {
+    const files = readdirSync(join(setDir, "cases")).map((f) => f.replace(/\.json$/, "")).sort();
+    assert.deepEqual(files, [...setManifest.cases].sort());
+    for (const name of Object.keys(set.superseded)) assert.ok(setManifest.cases.includes(name), `${name} is not a ${set.version} case`);
   });
+
+  for (const name of setManifest.cases as string[]) {
+    const superseded = set.superseded[name];
+    test(`${set.version}: vector ${name}${superseded ? ` (superseded: ${superseded})` : ""}`, async () => {
+      const c: Case = JSON.parse(readFileSync(join(setDir, "cases", `${name}.json`), "utf8"));
+      const h = harness(c, setManifest);
+      if (superseded) {
+        const s = c.steps[0];
+        h.setNow(s.now);
+        await h.v.verify({ method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: s.assertion });
+        return;
+      }
+      for (const [i, s] of c.steps.entries()) {
+        h.setNow(s.now);
+        const req = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: s.assertion };
+        let code = "";
+        let identity: unknown;
+        try {
+          identity = await h.v.verify(req);
+        } catch (e) {
+          if (!(e instanceof VerificationError)) throw e;
+          code = e.code;
+        }
+        if (s.expect.accept) {
+          assert.equal(code, "", `step ${i} refused`);
+          assert.deepEqual(identity, s.expect.identity, `step ${i} identity`);
+        } else {
+          assert.equal(code, s.expect.code, `step ${i} code`);
+        }
+        if (s.expect.jwks_fetches) {
+          const jwks = `${setManifest.config.issuer}/.well-known/varketa-acting-principal/jwks.json`;
+          assert.equal(h.counts.get(jwks), s.expect.jwks_fetches, `step ${i} key-set fetches`);
+        }
+      }
+    });
+  }
 }
 
 test("with an atomic store, of two concurrent copies of one assertion exactly one is accepted", async () => {
@@ -201,3 +224,40 @@ test("the default fetch refuses invalid UTF-8 and oversized documents, then reco
   } finally { globalThis.fetch = originalFetch; }
 });
 
+// good's first step, its claims changed by change and signed again under a key the case's key set then carries.
+async function resigned(change: (claims: Record<string, unknown>) => void): Promise<{ code: string; identity?: Record<string, unknown> }> {
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const claims = JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8"));
+  change(claims);
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
+  const signingInput = `${enc({ typ: "varketa-acting-principal+jwt", alg: "EdDSA", kid: "test" })}.${enc(claims)}`;
+  const signature = sign(null, Buffer.from(signingInput), privateKey).toString("base64url");
+  const jwks = `${manifest.config.issuer}/.well-known/varketa-acting-principal/jwks.json`;
+  (c.fetches[jwks][0].body as { keys: unknown[] }).keys = [{ ...publicKey.export({ format: "jwk" }), kid: "test" }];
+  const h = harness(c);
+  h.setNow(s.now);
+  try {
+    const identity = await h.v.verify({ method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: `${signingInput}.${signature}` });
+    return { code: "", identity: identity as unknown as Record<string, unknown> };
+  } catch (e) {
+    if (!(e instanceof VerificationError)) throw e;
+    return { code: e.code };
+  }
+}
+
+test("a present sub_id is exactly iss_sub", async () => {
+  // Shapes no vector carries: a fourth member, null, an array, a non-string subject. And one sub_id on ver 3, which is
+  // judged as on ver 4.
+  const good = { format: "iss_sub", iss: "https://idp.adopter.example", sub: "user-8812" };
+  const cases: [unknown, number, string][] = [
+    [{ ...good, email: "user@adopter.example" }, 4, "malformed"], [null, 4, "malformed"], [[good], 4, "malformed"],
+    [{ ...good, sub: 8812 }, 4, "malformed"], [{ ...good, iss: "" }, 3, "malformed"], [good, 3, ""],
+  ];
+  for (const [subId, ver, want] of cases) {
+    const got = await resigned((c) => { c.sub_id = subId; c.ver = ver; });
+    assert.equal(got.code, want, JSON.stringify({ subId, ver }));
+    if (!want) assert.deepEqual(got.identity?.sub_id, good);
+  }
+});
