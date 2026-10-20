@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { Verifier, InMemoryReplayStore, VerificationError, METADATA_PATH, TYP } from "../src/index.ts";
+import { Verifier, InMemoryReplayStore, VerificationError, METADATA_PATH, SUPPORTED_VERSIONS, TYP } from "../src/index.ts";
 
 const issuer = process.env.VARKETA_ISSUER ?? "https://api.varketa.ai";
 
@@ -22,7 +22,9 @@ test(`the deployed metadata and key set at ${issuer} are what the spec reads`, a
   assert.equal(md.issuer, issuer);
   assert.ok(typeof md.jwks_uri === "string" && md.jwks_uri.startsWith("https://"), `jwks_uri ${md.jwks_uri}`);
   assert.ok(md.signing_alg_values_supported.every((a: string) => ["ES256", "ES384", "EdDSA"].includes(a)));
-  assert.ok(md.ver_values_supported.includes(3));
+  // Every claim set the issuer signs is one this library accepts.
+  assert.ok(Array.isArray(md.ver_values_supported) && md.ver_values_supported.length >= 1 &&
+    md.ver_values_supported.every((n: number) => SUPPORTED_VERSIONS.includes(n)), `ver_values_supported ${md.ver_values_supported}`);
   const jwks = await get(md.jwks_uri);
   assert.ok(Array.isArray(jwks.keys) && jwks.keys.length >= 1);
   for (const k of jwks.keys) {
@@ -38,7 +40,7 @@ test(`an unknown kid is refused against the deployed key set at ${issuer}`, asyn
   const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const head = enc({ alg: "ES256", kid: "discovery-check-unknown-kid", typ: TYP });
   const now = Math.floor(Date.now() / 1000);
-  const body = enc({ ver: 3, iss: issuer, iat: now, exp: now + 60, jti: `discovery-${now}` });
+  const body = enc({ ver: SUPPORTED_VERSIONS.at(-1), iss: issuer, iat: now, exp: now + 60, jti: `discovery-${now}` });
   const sig = sign("sha256", Buffer.from(`${head}.${body}`), { key: privateKey, dsaEncoding: "ieee-p1363" });
   // A counting fetch (no redirect, 10 s, as the library's default; the default is not exported), so the one fresh
   // refetch on the unknown kid is asserted.

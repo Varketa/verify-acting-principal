@@ -6,7 +6,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from varketa_verify_acting_principal import FetchedDocument, InMemoryReplayStore, VerificationError, Verifier
+from varketa_verify_acting_principal import (SUPPORTED_VERSIONS, FetchedDocument, InMemoryReplayStore, VerificationError,
+                                             Verifier)
 
 VECTORS = Path(__file__).resolve().parents[2] / "vectors"
 # The current set, which the tests below the vectors also read.
@@ -56,11 +57,14 @@ class Harness:
 
 class Vectors(unittest.TestCase):
     def test_the_case_set_is_the_manifests(self) -> None:
+        self.assertEqual(sorted(int(version[1:]) for version, _ in SETS), sorted(SUPPORTED_VERSIONS))
         for version, superseded in SETS:
             with self.subTest(set=version):
                 manifest = json.loads((VECTORS / version / "manifest.json").read_text())
                 self.assertEqual(sorted(p.stem for p in (VECTORS / version / "cases").glob("*.json")),
                                  sorted(manifest["cases"]))
+                self.assertTrue(manifest["cases"], "an empty set proves nothing")
+                self.assertEqual(f"v{manifest['claim_set_ver']}", version)
                 for name in superseded:
                     self.assertIn(name, manifest["cases"])
 
@@ -203,6 +207,11 @@ class Vectors(unittest.TestCase):
                     self.assertEqual(identity["sub_id"], good)
 
 
+    def test_an_assertion_refused_for_its_sub_id_leaves_its_jti_unrecorded(self) -> None:
+        # The sub_id check runs before the replay record: the same jti, well formed, is then accepted.
+        bad, good = _resign_both(lambda c: c.update(sub_id={"format": "email"}), lambda c: None)
+        self.assertEqual((bad, good), ("malformed", ""))
+
     def test_json_nested_past_the_recursion_limit_is_malformed(self) -> None:
         head = base64.urlsafe_b64encode(b"[" * 100000).rstrip(b"=").decode()
         self.assertEqual(Harness({"fetches": {}}).verify({"now": 0, "request": {"method": "GET", "url": "https://x",
@@ -216,27 +225,42 @@ class Vectors(unittest.TestCase):
     def test_max_age_past_int_digit_limit_is_the_cap(self) -> None:
         from varketa_verify_acting_principal import _max_age
         for header, want in (("max-age=" + "9" * 5000, 300), ("max-age=" + "0" * 5000 + "5", 5), ("max-age=0", 0),
-                             ("max-age=301", 300), ("max-age=0300", 300), ("no-cache", 0)):
+                             ("max-age=301", 300), ("max-age=0300", 300), ("no-cache", 0),
+                             ("no-cache, \tMAX-AGE=120", 120), ("max-age=\u0663\u0660\u0660", 0),
+                             ("no-cache,\x85max-age=120", 0), ("\xa0max-age=120", 0)):
             with self.subTest(header=header[:20]):
                 self.assertEqual(_max_age(header), want)
 
 def _resigned(change):
     """good's first step, its claims changed by change and signed again under a key the case's key set then carries."""
+    case, step, sign = _signing_harness()
+    return case.verify(dict(step, assertion=sign(change)))
+
+
+def _resign_both(first, second):
+    """Two re-signings of good's first step, verified in order by ONE verifier; their two refusal codes."""
+    case, step, sign = _signing_harness()
+    return case.verify(dict(step, assertion=sign(first)))[1], case.verify(dict(step, assertion=sign(second)))[1]
+
+
+def _signing_harness():
     case = json.loads((DIR / "cases" / "good.json").read_text())
     step = case["steps"][0]
-    claims = json.loads(b64(step["assertion"].split(".")[1]))
-    change(claims)
     key = Ed25519PrivateKey.generate()
 
     def enc(raw):
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
-    head = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "test"}).encode())
-    body = enc(json.dumps(claims).encode())
-    sig = enc(key.sign(f"{head}.{body}".encode()))
+    def sign(change):
+        claims = json.loads(b64(step["assertion"].split(".")[1]))
+        change(claims)
+        head = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "test"}).encode())
+        body = enc(json.dumps(claims).encode())
+        return f"{head}.{body}.{enc(key.sign(f'{head}.{body}'.encode()))}"
+
     case["fetches"][JWKS][0]["body"]["keys"] = [{"kid": "test", "kty": "OKP", "crv": "Ed25519",
         "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]
-    return Harness(case).verify(dict(step, assertion=f"{head}.{body}.{sig}"))
+    return Harness(case), step, sign
 
 if __name__ == "__main__":
     unittest.main()

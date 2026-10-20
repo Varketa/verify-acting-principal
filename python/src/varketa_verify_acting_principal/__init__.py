@@ -110,7 +110,9 @@ def _default_fetch(url: str) -> FetchedDocument:
 
 
 def _max_age(cache_control: Optional[str]) -> int:
-    m = re.search(r"(?:^|,)\s*max-age=(\d+)", cache_control or "", re.IGNORECASE)
+    # HTTP's own grammar, as in the JavaScript verifier: optional whitespace is space or tab, and digits are ASCII.
+    # Neither shorthand is used: Python's \s and \d take Unicode spaces and digits, and JavaScript's \s another set.
+    m = re.search(r"(?:^|,)[ \t]*max-age=([0-9]+)", cache_control or "", re.IGNORECASE)
     if not m:
         return 0
     # Compared by length first: int() refuses a string of more than 4300 digits (CPython 3.11+), and any value of more

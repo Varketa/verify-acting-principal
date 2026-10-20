@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { join } from "node:path";
-import { Verifier, InMemoryReplayStore, VerificationError, type FetchedDocument } from "../src/index.ts";
+import { Verifier, InMemoryReplayStore, VerificationError, SUPPORTED_VERSIONS, type FetchedDocument } from "../src/index.ts";
 
 const vectors = join(import.meta.dirname, "..", "..", "vectors");
 // The current set, which the tests below the vectors also read.
@@ -44,6 +44,12 @@ function harness(c: Case, m = manifest) {
   return { v, counts, setNow: (t: number) => { now = t; } };
 }
 
+test("the vector sets are the accepted claim sets, and package.json names them", () => {
+  assert.deepEqual(SETS.map((s) => Number(s.version.slice(1))).sort(), [...SUPPORTED_VERSIONS].sort());
+  const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8"));
+  assert.deepEqual(pkg.varketa, { claimSetVersions: [...SUPPORTED_VERSIONS], vectors: manifest.version });
+});
+
 for (const set of SETS) {
   const setDir = join(vectors, set.version);
   const setManifest = JSON.parse(readFileSync(join(setDir, "manifest.json"), "utf8"));
@@ -51,6 +57,8 @@ for (const set of SETS) {
   test(`${set.version}: the case set is the manifest's`, () => {
     const files = readdirSync(join(setDir, "cases")).map((f) => f.replace(/\.json$/, "")).sort();
     assert.deepEqual(files, [...setManifest.cases].sort());
+    assert.ok(setManifest.cases.length > 0, "an empty set proves nothing");
+    assert.equal(`v${setManifest.claim_set_ver}`, set.version);
     for (const name of Object.keys(set.superseded)) assert.ok(setManifest.cases.includes(name), `${name} is not a ${set.version} case`);
   });
 
@@ -301,4 +309,35 @@ test("a request for a rotated-in kid waits for the refetch another request alrea
   const ids = await Promise.all(["jti-a", "jti-b"].map((jti) => h.v.verify({ ...req, assertion: k.sign({ ...claims, jti }) })));
   assert.equal(ids.length, 2);
   assert.equal(h.counts.get(jwksUrl), 2, "one refetch, shared");
+});
+
+test("max-age follows HTTP's grammar: space or tab, ASCII digits", async () => {
+  // A cacheable answer is fetched once for two assertions; an uncacheable one (max-age absent: 0) is fetched again.
+  const previous: Case = JSON.parse(readFileSync(join(dir, "cases", "previous-key.json"), "utf8"));
+  for (const [cacheControl, fetches] of [["no-cache, \tMAX-AGE=120", 1], ["max-age=\u0663\u0660\u0660", 2],
+    ["no-cache,\x85max-age=120", 2], ["\xa0max-age=120", 2]] as const) {
+    const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+    for (const rs of Object.values(c.fetches)) for (const r of rs) r.cache_control = cacheControl;
+    const h = harness(c), s = c.steps[0];
+    h.setNow(s.now);
+    const req = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url") };
+    await h.v.verify({ ...req, assertion: s.assertion });
+    await h.v.verify({ ...req, assertion: previous.steps[0].assertion });
+    assert.equal(h.counts.get(jwksUrl), fetches, JSON.stringify(cacheControl));
+  }
+});
+
+test("an assertion refused for its sub_id leaves its jti unrecorded", async () => {
+  // The sub_id check runs before the replay record: the same jti, well formed, is then accepted.
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const k = signer("test");
+  (c.fetches[jwksUrl][0].body as { keys: unknown[] }).keys = [k.jwk];
+  const h = harness(c);
+  h.setNow(s.now);
+  const claims = JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8"));
+  const req = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url") };
+  await assert.rejects(h.v.verify({ ...req, assertion: k.sign({ ...claims, sub_id: { format: "email" } }) }),
+    (e) => e instanceof VerificationError && e.code === "malformed");
+  await h.v.verify({ ...req, assertion: k.sign(claims) });
 });

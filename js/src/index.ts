@@ -106,7 +106,8 @@ const defaultFetch: FetchDocument = async (url) => {
 };
 
 function maxAge(cacheControl: string | null): number {
-  const m = /(?:^|,)\s*max-age=(\d+)/i.exec(cacheControl ?? "");
+  // HTTP's own grammar, as in the Python verifier: optional whitespace is space or tab, and digits are ASCII.
+  const m = /(?:^|,)[ \t]*max-age=([0-9]+)/i.exec(cacheControl ?? "");
   return m ? Math.min(Number(m[1]), MAX_CACHE) : 0;
 }
 
