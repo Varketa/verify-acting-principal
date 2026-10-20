@@ -61,13 +61,35 @@ A failed job can be re-run. A re-run publishes nothing twice, and `read-back` ju
    bootstraps (below). A trusted publisher is added from the package's settings page on npmjs.com. If the package does not
    exist yet, publish the first version once by hand from the workflow's own artifact:
    1. Push the first tag. `publish-npm` fails, `read-back` waits on it, and `publish-pypi` still publishes.
-   2. Download the run's `release-X.Y.Z` artifact.
-   3. `npm publish npm/varketa-verify-acting-principal-X.Y.Z.tgz --access public`, with an account that may publish
-      to `@varketa` and its 2FA code.
+   2. Find that run's id, then download its artifact (with `X.Y.Z` the tag's version):
+
+      ```bash
+      gh run list --repo Varketa/verify-acting-principal --workflow release.yml --limit 1
+      ```
+
+      ```bash
+      gh run download <run id> --repo Varketa/verify-acting-principal --name release-X.Y.Z --dir release-X.Y.Z
+      ```
+
+   3. Sign in as an account that may publish to `@varketa`, then publish the artifact's tarball, with that account's
+      2FA code. There is no `--provenance` here: npm signs provenance only inside the workflow.
+
+      ```bash
+      npm login
+      ```
+
+      ```bash
+      npm publish release-X.Y.Z/npm/varketa-verify-acting-principal-X.Y.Z.tgz --access public --otp <2FA code>
+      ```
+
    4. On the package's settings page, add the trusted publisher: GitHub Actions, organization `Varketa`, repository
       `verify-acting-principal`, workflow `release.yml`, environment `npm`. Then set publishing access to require
       two-factor authentication and disallow tokens.
    5. Re-run the failed jobs. `publish-npm` finds the version already published, and `read-back` checks it is the
-      artifact's tarball.
+      artifact's tarball:
+
+      ```bash
+      gh run rerun <run id> --repo Varketa/verify-acting-principal --failed
+      ```
 
    That first version carries no npm provenance. Every later one does.
