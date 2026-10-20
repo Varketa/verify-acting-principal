@@ -341,3 +341,19 @@ test("an assertion refused for its sub_id leaves its jti unrecorded", async () =
     (e) => e instanceof VerificationError && e.code === "malformed");
   await h.v.verify({ ...req, assertion: k.sign(claims) });
 });
+
+test("a failed refetch keeps a fresh key set", async () => {
+  // SPEC §2.3 refuses only after expiry: an unknown kid's refetch that fails (here a 503) answers that kid `kid`, and the
+  // still-fresh set keeps verifying the kids it holds.
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  c.fetches[jwksUrl].push({ status: 503 });
+  const h = harness(c), s = c.steps[0];
+  h.setNow(s.now);
+  const req = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url") };
+  await h.v.verify({ ...req, assertion: s.assertion });
+  const unknown = Buffer.from(JSON.stringify({ typ: "varketa-acting-principal+jwt", alg: "EdDSA", kid: "rotated-in" })).toString("base64url");
+  await assert.rejects(h.v.verify({ ...req, assertion: `${unknown}.e30.AAAA` }), (e) => e instanceof VerificationError && e.code === "kid");
+  assert.equal(h.counts.get(jwksUrl), 2, "the unknown kid refetched once, and the refetch failed");
+  const previous: Case = JSON.parse(readFileSync(join(dir, "cases", "previous-key.json"), "utf8"));
+  await h.v.verify({ ...req, assertion: previous.steps[0].assertion });
+});

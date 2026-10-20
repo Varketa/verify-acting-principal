@@ -231,6 +231,125 @@ class Vectors(unittest.TestCase):
             with self.subTest(header=header[:20]):
                 self.assertEqual(_max_age(header), want)
 
+    def test_the_default_fetch_ends_at_its_deadline_whatever_the_answer_does(self) -> None:
+        # SPEC §2.5: the whole fetch is bounded, not each read. An answer that drips a byte every 50 ms never trips a
+        # per-read timeout; it must still be cut off at the deadline (shortened here to 0.5 s), and its worker must end
+        # soon after. A fast answer through the same path is the positive control.
+        import time as _time
+        import urllib.request
+        from unittest import mock
+        import varketa_verify_acting_principal as vap
+
+        class Answer:
+            def __init__(self, chunks, delay):
+                self.chunks, self.delay, self.status, self.headers = chunks, delay, 200, {"Cache-Control": "max-age=60"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read1(self, n):
+                _time.sleep(self.delay)
+                return self.chunks.pop(0) if self.chunks else b""
+
+        def opener_for(answer):
+            class Opener:
+                def open(self, req, timeout):
+                    return answer
+            return lambda *handlers: Opener()
+
+        with mock.patch.object(vap, "_FETCH_TIMEOUT", 0.5):
+            with mock.patch.object(urllib.request, "build_opener", opener_for(Answer([b"x"] * 10_000, 0.05))):
+                started = _time.monotonic()
+                with self.assertRaises(TimeoutError):
+                    vap._default_fetch("https://issuer.example/jwks.json")
+                elapsed = _time.monotonic() - started
+                self.assertGreaterEqual(elapsed, 0.45)
+                self.assertLess(elapsed, 1.0, "the fetch outlived its deadline")
+                for _ in range(40):
+                    if not any(t.name == "varketa-verify-fetch" for t in threading.enumerate()):
+                        break
+                    _time.sleep(0.05)
+                self.assertFalse(any(t.name == "varketa-verify-fetch" for t in threading.enumerate()),
+                                 "the fetch's worker is still running after its deadline")
+            # One read that blocks past the deadline (a stalled socket, within its own per-read timeout): the worker
+            # cannot check the clock until it returns, so only the caller's wait bounds the fetch.
+            with mock.patch.object(urllib.request, "build_opener", opener_for(Answer([b"x"], 3.0))):
+                started = _time.monotonic()
+                with self.assertRaises(TimeoutError):
+                    vap._default_fetch("https://issuer.example/jwks.json")
+                self.assertLess(_time.monotonic() - started, 1.0, "a stalled read held the fetch past its deadline")
+            with mock.patch.object(urllib.request, "build_opener", opener_for(Answer([b'{"keys":', b"[]}"], 0))):
+                doc = vap._default_fetch("https://issuer.example/jwks.json")
+                self.assertEqual((doc.status, doc.cache_control, doc.body), (200, "max-age=60", b'{"keys":[]}'))
+            with mock.patch.object(urllib.request, "build_opener", opener_for(Answer([b"x" * 8192] * 9, 0))), \
+                    self.assertRaisesRegex(ValueError, "over 65536 bytes"):
+                vap._default_fetch("https://issuer.example/jwks.json")
+
+    def test_a_verify_whose_key_is_cached_never_waits_behind_a_slow_fetch(self) -> None:
+        # The discovery runs outside the verifier's lock: while one verify waits on the refetch an unknown kid starts,
+        # another whose key is cached and fresh is answered at once.
+        case = json.loads((DIR / "cases" / "good.json").read_text())
+        h = Harness(case)
+        h.verify(case["steps"][0])
+        release, started = threading.Event(), threading.Event()
+        fetch = h.fetch
+
+        def slow(url):
+            if url == JWKS:
+                started.set()
+                release.wait(5)
+            return fetch(url)
+
+        h.verifier._fetch = slow
+
+        def enc(raw):
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+        unknown = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "rotated-in"}).encode())
+        step = case["steps"][0]
+        results = {}
+        refetching = threading.Thread(
+            target=lambda: results.setdefault("refetch", h.verify(dict(step, assertion=f"{unknown}.e30.AAAA"))[1]))
+        refetching.start()
+        self.assertTrue(started.wait(5), "the unknown kid started no refetch")
+        warm = json.loads((DIR / "cases" / "previous-key.json").read_text())["steps"][0]
+        cached = threading.Thread(target=lambda: results.setdefault("cached", h.verify(warm)[1]))
+        cached.start()
+        cached.join(2)
+        self.assertFalse(cached.is_alive(), "a verify whose key is cached waited behind the refetch")
+        self.assertEqual(results.get("cached"), "")
+        # A second unknown-kid verify joins the refetch under way instead of answering before it lands.
+        second = threading.Thread(
+            target=lambda: results.setdefault("second", h.verify(dict(step, assertion=f"{unknown}.e30.AAAA"))[1]))
+        second.start()
+        second.join(0.3)
+        self.assertTrue(second.is_alive(), "a verify for a kid the refetch under way may bring did not wait for it")
+        release.set()
+        refetching.join(5)
+        second.join(5)
+        self.assertEqual((results.get("refetch"), results.get("second")), ("kid", "kid"))
+        self.assertEqual(h.counts[JWKS], 2, "one load and one shared refetch")
+
+    def test_a_failed_refetch_keeps_a_fresh_key_set(self) -> None:
+        # SPEC §2.3 refuses only after expiry: an unknown kid's refetch that fails (here a 503) answers that kid `kid`,
+        # and the still-fresh set keeps verifying the kids it holds.
+        case = json.loads((DIR / "cases" / "good.json").read_text())
+        case["fetches"][JWKS].append({"status": 503})
+        h = Harness(case)
+        self.assertEqual(h.verify(case["steps"][0])[1], "")
+
+        def enc(raw):
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+        unknown = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "rotated-in"}).encode())
+        self.assertEqual(h.verify(dict(case["steps"][0], assertion=f"{unknown}.e30.AAAA"))[1], "kid")
+        self.assertEqual(h.counts[JWKS], 2, "the unknown kid refetched once, and the refetch failed")
+        warm = json.loads((DIR / "cases" / "previous-key.json").read_text())["steps"][0]
+        self.assertEqual(h.verify(warm)[1], "", "the failed refetch discarded the fresh key set")
+
 def _resigned(change):
     """good's first step, its claims changed by change and signed again under a key the case's key set then carries."""
     case, step, sign = _signing_harness()

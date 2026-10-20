@@ -67,6 +67,14 @@ class ReplayStore(Protocol):
         concurrent calls with one key, exactly one returns True. Never a read followed by a write."""
 
 
+class _Flight:
+    """One discovery in flight. Every verify that needs it waits on `done`, then reads `ok`."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.ok = False
+
+
 class InMemoryReplayStore:
     """An in-process replay store. It is correct only for an API served by ONE instance, so it must be asked for."""
 
@@ -92,21 +100,61 @@ class InMemoryReplayStore:
             return True
 
 
-def _default_fetch(url: str) -> FetchedDocument:
-    class _NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args: Any, **kwargs: Any) -> None:
-            return None
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
 
+
+def _default_fetch(url: str) -> FetchedDocument:
+    """Fetch one discovery document: no redirect, at most 64 KiB, and the whole fetch within 10 s (SPEC §2.5).
+
+    urllib's own timeout bounds each socket operation, not the fetch, so an answer that arrives a few bytes at a time
+    would never end. The fetch therefore runs in a worker thread that the caller waits on for the remaining time; the
+    worker also checks the same deadline between reads, so it ends soon after (within one more socket timeout). The
+    opener is urllib's own, so its proxy handling is kept.
+    """
     if not url.startswith("https://"):
         raise ValueError(f"{url}: not an https URL")
-    opener = urllib.request.build_opener(_NoRedirect)
+    deadline = time.monotonic() + _FETCH_TIMEOUT
+    result: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            result["document"] = _fetch_until(url, deadline)
+        except BaseException as e:  # noqa: BLE001 - handed to the caller, which fails closed
+            result["error"] = e
+
+    worker = threading.Thread(target=run, name="varketa-verify-fetch", daemon=True)
+    worker.start()
+    worker.join(max(0.0, deadline - time.monotonic()))
+    if worker.is_alive():
+        raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s")
+    if "error" in result:
+        raise result["error"]
+    return result["document"]
+
+
+def _fetch_until(url: str, deadline: float) -> FetchedDocument:
+    """The worker's half of _default_fetch: open and read, giving up at the deadline."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError(f"{url}: no time left to fetch")
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
-    # Bounded: no redirect, 10 s, at most 64 KiB, so a stalled or oversized issuer answer fails closed.
-    with opener.open(req, timeout=_FETCH_TIMEOUT) as r:  # noqa: S310 - https only, checked above
-        body = r.read(_MAX_DOCUMENT_BYTES + 1)
-        if len(body) > _MAX_DOCUMENT_BYTES:
-            raise ValueError(f"{url}: document over {_MAX_DOCUMENT_BYTES} bytes")
-        return FetchedDocument(r.status, r.headers.get("Cache-Control"), body)
+    with urllib.request.build_opener(_NoRedirect).open(req, timeout=remaining) as r:  # noqa: S310 - https only
+        chunks: list[bytes] = []
+        size = 0
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s")
+            # read1: what one read of the socket returns, so a slow answer reaches the deadline check between reads.
+            chunk = r.read1(min(8192, _MAX_DOCUMENT_BYTES + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > _MAX_DOCUMENT_BYTES:
+                raise ValueError(f"{url}: document over {_MAX_DOCUMENT_BYTES} bytes")
+        return FetchedDocument(r.status, r.headers.get("Cache-Control"), b"".join(chunks))
 
 
 def _max_age(cache_control: Optional[str]) -> int:
@@ -182,6 +230,9 @@ class Verifier:
         self._keys: Optional[dict[str, dict[str, Any]]] = None
         self._fetched_at = self._max_age = 0
         self._last_refetch: Optional[int] = None
+        # The discovery in flight, if any: fetched outside the lock, so a slow issuer never holds a verify whose key
+        # is cached, and shared, so concurrent verifies that need it wait on one fetch.
+        self._flight: Optional[_Flight] = None
 
     def _get(self, url: str) -> Optional[FetchedDocument]:
         try:
@@ -191,7 +242,12 @@ class Verifier:
         return r if r.status == 200 else None
 
     def _load(self, now: int) -> bool:
-        if not self._jwks_uri or now - self._md_fetched_at >= self._md_max_age:
+        """One discovery: the fetches run outside the lock, and the result is published under it."""
+        with self._lock:
+            jwks_uri = self._jwks_uri
+            need_metadata = not jwks_uri or now - self._md_fetched_at >= self._md_max_age
+        metadata = None
+        if need_metadata:
             md = self._get(self._issuer + METADATA_PATH)
             try:
                 doc = _object(md.body) if md else None
@@ -200,32 +256,72 @@ class Verifier:
             if not doc or doc.get("issuer") != self._issuer or not isinstance(doc.get("jwks_uri"), str) \
                     or not doc["jwks_uri"].startswith("https://"):
                 return False
-            self._jwks_uri, self._md_fetched_at, self._md_max_age = doc["jwks_uri"], now, _max_age(md.cache_control)
-        r = self._get(self._jwks_uri)
+            jwks_uri = doc["jwks_uri"]
+            metadata = (jwks_uri, now, _max_age(md.cache_control))
+        r = self._get(jwks_uri)
         try:
             keys = _object(r.body).get("keys") if r else None
         except VerificationError:
             keys = None
-        if not isinstance(keys, list):
-            self._keys = None
-            return False
-        self._keys = {k["kid"]: k for k in keys if isinstance(k, dict) and isinstance(k.get("kid"), str)}
-        self._fetched_at, self._max_age = now, _max_age(r.cache_control)
-        return True
+        with self._lock:
+            if metadata:
+                self._jwks_uri, self._md_fetched_at, self._md_max_age = metadata
+            # A failed key-set fetch leaves the cache as it was: a fresh set stays usable until its max-age (SPEC §2.3
+            # refuses only after expiry), so an unknown kid's refetch against a failing issuer cannot discard it.
+            if not isinstance(keys, list):
+                return False
+            self._keys = {k["kid"]: k for k in keys if isinstance(k, dict) and isinstance(k.get("kid"), str)}
+            self._fetched_at, self._max_age = now, _max_age(r.cache_control)
+            return True
+
+    def _stale(self, now: int) -> bool:
+        return self._keys is None or now - self._fetched_at >= self._max_age \
+            or now - self._md_fetched_at >= self._md_max_age
+
+    def _flight_for(self, now: int, refetch: bool) -> tuple[Optional[_Flight], bool]:
+        """Under the lock: the discovery to wait on and whether this caller leads it. A flight already under way is
+        joined whatever its cause; a new one starts when the cache is stale, or for an unknown kid at most once a
+        minute (SPEC §2.4)."""
+        if self._flight is not None:
+            return self._flight, False
+        if refetch:
+            if self._last_refetch is not None and now - self._last_refetch < _REFETCH_INTERVAL:
+                return None, False
+            self._last_refetch = now
+        self._flight = _Flight()
+        return self._flight, True
+
+    def _fly(self, flight: _Flight, lead: bool, now: int) -> None:
+        """Lead the discovery, or wait for the caller that leads it."""
+        if not lead:
+            flight.done.wait()
+            return
+        try:
+            flight.ok = self._load(now)
+        finally:
+            with self._lock:
+                self._flight = None
+            flight.done.set()
 
     def _key_for(self, kid: str) -> Optional[dict[str, Any]]:
+        # A stale cache: one discovery serves every verify that needs it, and a failed one refuses them all.
         with self._lock:
-            # Another verifier thread may have held the lock while fetching.
             now = self._clock()
-            if self._keys is None or now - self._fetched_at >= self._max_age \
-                    or now - self._md_fetched_at >= self._md_max_age:
-                if not self._load(now):
-                    raise VerificationError("jwks_unavailable")
+            flight, lead = self._flight_for(now, refetch=False) if self._stale(now) else (None, False)
+        if flight is not None:
+            self._fly(flight, lead, now)
+            if not flight.ok:
+                raise VerificationError("jwks_unavailable")
+        # An unknown kid: refetch once, or wait for a discovery already under way, which may bring it.
+        with self._lock:
+            now = self._clock()
             jwk = self._keys.get(kid) if self._keys else None
-            if jwk is None and (self._last_refetch is None or now - self._last_refetch >= _REFETCH_INTERVAL):
-                self._last_refetch = now
-                if self._load(now) and self._keys:
-                    jwk = self._keys.get(kid)
+            flight, lead = self._flight_for(now, refetch=True) if jwk is None else (None, False)
+        if flight is not None:
+            self._fly(flight, lead, now)
+        with self._lock:
+            jwk = self._keys.get(kid) if self._keys else None
+            # The clock again, after any wait: a discovery that expired during its fetch is unavailable.
             at = self._clock()
             if (self._md_max_age > 0 and at - self._md_fetched_at >= self._md_max_age) \
                     or (self._max_age > 0 and at - self._fetched_at >= self._max_age):
