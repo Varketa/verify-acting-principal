@@ -91,7 +91,8 @@ export interface Identity {
 
 export interface Request { method: string; url: string; body: Uint8Array | string; assertion: string | null | undefined }
 
-// A bounded fetch: no redirect, 10 s, and at most 64 KiB, so a stalled or oversized issuer answer fails closed.
+// A bounded fetch: no redirect, 10 s for the whole fetch (the signal aborts the body's read too, so a dripping answer is
+// cut off), and at most 64 KiB, so a stalled, dripping or oversized issuer answer fails closed (SPEC §2.5).
 const defaultFetch: FetchDocument = async (url) => {
   const r = await fetch(url, { redirect: "error", headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   const chunks: Uint8Array[] = [];
@@ -212,7 +213,7 @@ export class Verifier {
     const kid = typeof header.kid === "string" ? header.kid : "";
     let jwk = this.#keys?.get(kid);
     // A refetch already in flight (another request's, for a rotated-in kid) may bring this kid: wait for it rather than
-    // refuse, as the Python verifier's lock does.
+    // refuse, as the Python verifier's shared flight does.
     if (!jwk && this.#loading) {
       await this.#loading.catch(() => false);
       jwk = this.#keys?.get(kid);
