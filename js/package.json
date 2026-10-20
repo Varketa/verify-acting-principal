@@ -3,6 +3,12 @@
   "version": "0.2.1",
   "description": "Verify the Varketa-Acting-Principal header (claim set versions 3 and 4) on an API that Varketa's agents call.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Varketa/verify-acting-principal.git",
+    "directory": "js"
+  },
+  "homepage": "https://github.com/Varketa/verify-acting-principal#readme",
   "type": "module",
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",

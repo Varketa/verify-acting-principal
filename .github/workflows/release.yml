@@ -1,0 +1,163 @@
+name: release
+# Publishes both packages from a signed vX.Y.Z tag on main (RELEASING.md). No job holds a token: npm and PyPI
+# each trust this workflow through OIDC (trusted publishing), configured once by the owner.
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.18"
+      - id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash release/verify-tag.sh
+      - run: bash release/preflight.sh "${{ steps.tag.outputs.version }}"
+
+  test:
+    needs: preflight
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: [preflight, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.18"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install build==1.6.1
+      - run: bash release/build.sh "$RUNNER_TEMP/release"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ needs.preflight.outputs.version }}
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+
+  publish-npm:
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.preflight.outputs.version }}
+          path: release
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.18"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      # Trusted publishing needs npm 11.5.1 or later; Node 22.18 ships npm 10.
+      - run: npm install -g npm@11.20.0
+      # A version already on npm is never published again; read-back then checks it is this build's tarball.
+      - env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          rc=0
+          npm view "@varketa/verify-acting-principal@$VERSION" version > view.out 2> view.err || rc=$?
+          if [ "$rc" = 0 ] && [ "$(cat view.out)" = "$VERSION" ]; then
+            echo "publish-npm: $VERSION is already on npm; read-back compares it with this build"
+          elif [ "$rc" != 0 ] && grep -q E404 view.err; then
+            npm publish "release/npm/varketa-verify-acting-principal-$VERSION.tgz" --access public --provenance
+          else
+            echo "publish-npm: could not tell whether $VERSION is on npm (npm view exit $rc):" >&2
+            cat view.out view.err >&2
+            exit 1
+          fi
+
+  publish-pypi:
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.preflight.outputs.version }}
+          path: release
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: release/pypi
+          skip-existing: true
+
+  read-back:
+    needs: [preflight, publish-npm, publish-pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.preflight.outputs.version }}
+          path: release-artifacts
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.18"
+      - run: bash release/read-back.sh release-artifacts "${{ needs.preflight.outputs.version }}"
+
+  # The release notes carry the version, the claim sets it accepts, the vector set's digest and every artifact's
+  # sha256 (RELEASING.md). A release that already exists is left alone.
+  notes:
+    needs: [preflight, read-back]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.preflight.outputs.version }}
+          path: release-artifacts
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "notes: release $TAG already exists"; exit 0
+          fi
+          vectors=$(node -p 'require("./js/package.json").varketa.vectors')
+          versions=$(node -p 'require("./js/package.json").varketa.claimSetVersions.join(", ")')
+          digest=$(bash release/vectors-digest.sh "$vectors")
+          {
+            echo "npm \`@varketa/verify-acting-principal@$VERSION\` and PyPI \`varketa-verify-acting-principal==$VERSION\`."
+            echo
+            echo "- Claim-set versions accepted: $versions"
+            echo "- Vectors: \`$vectors\`, $digest (release/vectors-digest.sh), git tree $(git rev-parse "HEAD:vectors/$vectors")"
+            echo
+            echo "SHA256SUMS:"
+            echo '```'
+            cat release-artifacts/SHA256SUMS
+            echo '```'
+          } > notes.md
+          gh release create "$TAG" --verify-tag --title "$VERSION" --notes-file notes.md \
+            release-artifacts/SHA256SUMS release-artifacts/npm/*.tgz release-artifacts/pypi/*
