@@ -3,13 +3,15 @@
 Verify the `Varketa-Acting-Principal` header on an API that Varketa's agents call. The header says on whose behalf a
 call is made and for which of your customer orgs, bound to that one request.
 
-- [SPEC.md](SPEC.md): the language-neutral specification.
-- [vectors/v4](vectors/v4) and [vectors/v3](vectors/v3): the signed test vectors, the normative half. Every library
-  here passes both, `v3`'s `unknown-ver` superseded ([SPEC §6](SPEC.md#6-the-vectors)).
-- [js](js): TypeScript / Node (`@varketa/verify-acting-principal`), no runtime dependencies.
-- [python](python): Python (`varketa-verify-acting-principal`), on `cryptography`.
+- [SPEC.md](https://github.com/Varketa/verify-acting-principal/blob/main/SPEC.md): the language-neutral specification.
+- [vectors/v4](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v4) and [vectors/v3](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v3): the signed test vectors, the normative half. Every library
+  here passes both, `v3`'s `unknown-ver` superseded ([SPEC §6](https://github.com/Varketa/verify-acting-principal/blob/main/SPEC.md#6-the-vectors)).
+- [js](https://github.com/Varketa/verify-acting-principal/tree/main/js): TypeScript / Node (`@varketa/verify-acting-principal`), no runtime dependencies.
+- [python](https://github.com/Varketa/verify-acting-principal/tree/main/python): Python (`varketa-verify-acting-principal`), on `cryptography`.
 
-The packages are not yet published to npm or PyPI.
+Install with `npm install @varketa/verify-acting-principal` or `pip install varketa-verify-acting-principal`.
+Releases are published from a signed tag ([RELEASING.md](https://github.com/Varketa/verify-acting-principal/blob/main/RELEASING.md)), and
+[EVOLUTION.md](https://github.com/Varketa/verify-acting-principal/blob/main/EVOLUTION.md) says which versions are published.
 
 ```ts
 import { Verifier, InMemoryReplayStore } from "@varketa/verify-acting-principal";
