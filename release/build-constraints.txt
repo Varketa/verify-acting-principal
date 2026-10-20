@@ -1,0 +1,2 @@
+# The build backend release/build.sh builds with, so a release build does not take whatever setuptools is newest.
+setuptools==84.0.0

@@ -6,9 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "varketa-verify-acting-principal"
 version = "0.2.0"
 description = "Verify the Varketa-Acting-Principal header (claim set versions 3 and 4) on an API that Varketa's agents call."
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["cryptography>=42"]
+
+[project.urls]
+Repository = "https://github.com/Varketa/verify-acting-principal"
 
 [tool.setuptools.packages.find]
 where = ["src"]
