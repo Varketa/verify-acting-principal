@@ -115,8 +115,8 @@ def _max_age(cache_control: Optional[str]) -> int:
     m = re.search(r"(?:^|,)[ \t]*max-age=([0-9]+)", cache_control or "", re.IGNORECASE)
     if not m:
         return 0
-    # Compared by length first: int() refuses a string of more than 4300 digits (CPython 3.11+), and any value of more
-    # than three significant digits is over the cap anyway.
+    # Compared by length first: int() refuses a string of more than 4300 digits (CPython's integer-string limit, from
+    # 3.11 and 3.10.7), and any value of more than three significant digits is over the cap anyway.
     digits = m.group(1).lstrip("0") or "0"
     return _MAX_CACHE if len(digits) > 3 else min(int(digits), _MAX_CACHE)
 

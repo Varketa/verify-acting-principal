@@ -2,8 +2,8 @@
 
 When a Varketa agent calls your API, each request carries a `Varketa-Acting-Principal` header: a compact JWS that says
 on whose behalf the call is made, for which of your customer orgs, and for exactly which request. This page is the
-language-neutral specification. The [vectors](vectors/v4) are its normative half: a verifier that disagrees with a
-vector is wrong. The libraries in this repository implement it.
+language-neutral specification. The [vectors](vectors) (one set per claim set, §6) are its normative half: a verifier
+that disagrees with a vector is wrong. The libraries in this repository implement it.
 
 Without verification your API sees only Varketa's service credential. It then cannot apply per-user or per-org
 permissions, and its audit log names Varketa for every action.
@@ -80,7 +80,8 @@ An accepted assertion exposes:
   [RFC 9493](https://www.rfc-editor.org/rfc/rfc9493) subject identifier `{"format": "iss_sub", "iss": "<your IdP's
   issuer>", "sub": "<its subject>"}`. It is present when Varketa holds the acting grant's subject at your provider
   (recorded when the person signed in through it), and absent otherwise, never empty. Look your own user up by it
-  instead of mapping Varketa's `sub`. A present `sub_id` has exactly those three members, `format`
+  instead of mapping Varketa's `sub`, and by the pair: a `sub` is unique only within its `iss`, so match `iss` to an
+  issuer you trust as well. A present `sub_id` has exactly those three members, `format`
   `iss_sub` and `iss` and `sub` non-empty strings, or the assertion is refused `malformed` (check 17): a verifier
   never exposes half a subject. It is judged the same way whatever the `ver`.
 - `probe: true` on Varketa's verification probe only. A probe is verified like any other assertion, carries a fixed
