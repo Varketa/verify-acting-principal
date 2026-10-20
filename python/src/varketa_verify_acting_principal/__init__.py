@@ -37,6 +37,7 @@ _ALGORITHMS = {
     "EdDSA": (None, "OKP", "Ed25519", None, 0),
 }
 _SKEW = 60
+_MAX_SAFE_INTEGER = 2**53 - 1
 _MAX_LIFETIME = 120
 _MAX_CACHE = 300
 _REFETCH_INTERVAL = 60
@@ -110,7 +111,12 @@ def _default_fetch(url: str) -> FetchedDocument:
 
 def _max_age(cache_control: Optional[str]) -> int:
     m = re.search(r"(?:^|,)\s*max-age=(\d+)", cache_control or "", re.IGNORECASE)
-    return min(int(m.group(1)), _MAX_CACHE) if m else 0
+    if not m:
+        return 0
+    # Compared by length first: int() refuses a string of more than 4300 digits (CPython 3.11+), and any value of more
+    # than three significant digits is over the cap anyway.
+    digits = m.group(1).lstrip("0") or "0"
+    return _MAX_CACHE if len(digits) > 3 else min(int(digits), _MAX_CACHE)
 
 
 def _b64url(s: str) -> bytes:
@@ -125,7 +131,8 @@ def _b64url(s: str) -> bytes:
 def _object(b: bytes) -> dict[str, Any]:
     try:
         v = json.loads(b.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as e:
+    except (ValueError, UnicodeDecodeError, RecursionError) as e:
+        # RecursionError: JSON nested past the interpreter's limit, which an unsigned header can be.
         raise VerificationError("malformed") from e
     if not isinstance(v, dict):
         raise VerificationError("malformed")
@@ -260,10 +267,13 @@ class Verifier:
 
         def n(k: str) -> Optional[int]:
             v = c.get(k)
-            # JSON 3.0 and 3e0 denote integers too, as in the JavaScript verifier.
+            # JSON 3.0 and 3e0 denote integers too, and only safe integers count (|v| <= 2^53 - 1), both as in the
+            # JavaScript verifier's Number.isSafeInteger: a larger value is absent, so both verifiers refuse it alike.
             if isinstance(v, float) and v.is_integer():
-                return int(v)
-            return v if isinstance(v, int) and not isinstance(v, bool) else None
+                v = int(v)
+            if not isinstance(v, int) or isinstance(v, bool) or abs(v) > _MAX_SAFE_INTEGER:
+                return None
+            return v
 
         iat, exp = n("iat"), n("exp")
         raw = body.encode() if isinstance(body, str) else bytes(body)

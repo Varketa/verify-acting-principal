@@ -203,6 +203,23 @@ class Vectors(unittest.TestCase):
                     self.assertEqual(identity["sub_id"], good)
 
 
+    def test_json_nested_past_the_recursion_limit_is_malformed(self) -> None:
+        head = base64.urlsafe_b64encode(b"[" * 100000).rstrip(b"=").decode()
+        self.assertEqual(Harness({"fetches": {}}).verify({"now": 0, "request": {"method": "GET", "url": "https://x",
+            "body_b64url": ""}, "assertion": f"{head}.e30.AAAA"})[1], "malformed")
+
+    def test_a_number_past_the_safe_integers_is_absent(self) -> None:
+        # As in the JavaScript verifier: 2^60 is not a safe integer, so exp is absent and the refusal is expired.
+        self.assertEqual(_resigned(lambda c: c.update(exp=2**60))[1], "expired")
+        self.assertEqual(_resigned(lambda c: c.update(exp=float(2**60)))[1], "expired")
+
+    def test_max_age_past_int_digit_limit_is_the_cap(self) -> None:
+        from varketa_verify_acting_principal import _max_age
+        for header, want in (("max-age=" + "9" * 5000, 300), ("max-age=" + "0" * 5000 + "5", 5), ("max-age=0", 0),
+                             ("max-age=301", 300), ("max-age=0300", 300), ("no-cache", 0)):
+            with self.subTest(header=header[:20]):
+                self.assertEqual(_max_age(header), want)
+
 def _resigned(change):
     """good's first step, its claims changed by change and signed again under a key the case's key set then carries."""
     case = json.loads((DIR / "cases" / "good.json").read_text())

@@ -208,6 +208,12 @@ export class Verifier {
     }
     const kid = typeof header.kid === "string" ? header.kid : "";
     let jwk = this.#keys?.get(kid);
+    // A refetch already in flight (another request's, for a rotated-in kid) may bring this kid: wait for it rather than
+    // refuse, as the Python verifier's lock does.
+    if (!jwk && this.#loading) {
+      await this.#loading.catch(() => false);
+      jwk = this.#keys?.get(kid);
+    }
     if (!jwk && (this.#lastRefetch === null || now - this.#lastRefetch >= REFETCH_INTERVAL)) {
       this.#lastRefetch = now;
       if (await this.#load(now)) jwk = this.#keys?.get(kid);
