@@ -1,6 +1,6 @@
-"""Verify the Varketa-Acting-Principal header, claim set version 3.
+"""Verify the Varketa-Acting-Principal header, claim set versions 3 and 4.
 
-The normative half is SPEC.md and vectors/v3 at the repository root; this module follows the spec's order.
+The normative half is SPEC.md and vectors/v4 at the repository root; this module follows the spec's order.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ __all__ = [
 
 HEADER = "Varketa-Acting-Principal"
 TYP = "varketa-acting-principal+jwt"
-SUPPORTED_VERSIONS = (3,)
+SUPPORTED_VERSIONS = (3, 4)
 METADATA_PATH = "/.well-known/varketa-acting-principal"
 _ALGORITHMS = {
     "ES256": (hashes.SHA256, "EC", "P-256", ec.SECP256R1, 32),
@@ -37,6 +37,7 @@ _ALGORITHMS = {
     "EdDSA": (None, "OKP", "Ed25519", None, 0),
 }
 _SKEW = 60
+_MAX_SAFE_INTEGER = 2**53 - 1
 _MAX_LIFETIME = 120
 _MAX_CACHE = 300
 _REFETCH_INTERVAL = 60
@@ -109,8 +110,15 @@ def _default_fetch(url: str) -> FetchedDocument:
 
 
 def _max_age(cache_control: Optional[str]) -> int:
-    m = re.search(r"(?:^|,)\s*max-age=(\d+)", cache_control or "", re.IGNORECASE)
-    return min(int(m.group(1)), _MAX_CACHE) if m else 0
+    # HTTP's own grammar, as in the JavaScript verifier: optional whitespace is space or tab, and digits are ASCII.
+    # Neither shorthand is used: Python's \s and \d take Unicode spaces and digits, and JavaScript's \s another set.
+    m = re.search(r"(?:^|,)[ \t]*max-age=([0-9]+)", cache_control or "", re.IGNORECASE)
+    if not m:
+        return 0
+    # Compared by length first: int() refuses a string of more than 4300 digits (CPython's integer-string limit, from
+    # 3.11 and 3.10.7), and any value of more than three significant digits is over the cap anyway.
+    digits = m.group(1).lstrip("0") or "0"
+    return _MAX_CACHE if len(digits) > 3 else min(int(digits), _MAX_CACHE)
 
 
 def _b64url(s: str) -> bytes:
@@ -125,7 +133,8 @@ def _b64url(s: str) -> bytes:
 def _object(b: bytes) -> dict[str, Any]:
     try:
         v = json.loads(b.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as e:
+    except (ValueError, UnicodeDecodeError, RecursionError) as e:
+        # RecursionError: JSON nested past the interpreter's limit, which an unsigned header can be.
         raise VerificationError("malformed") from e
     if not isinstance(v, dict):
         raise VerificationError("malformed")
@@ -260,10 +269,13 @@ class Verifier:
 
         def n(k: str) -> Optional[int]:
             v = c.get(k)
-            # JSON 3.0 and 3e0 denote integers too, as in the JavaScript verifier.
+            # JSON 3.0 and 3e0 denote integers too, and only safe integers count (|v| <= 2^53 - 1), both as in the
+            # JavaScript verifier's Number.isSafeInteger: a larger value is absent, so both verifiers refuse it alike.
             if isinstance(v, float) and v.is_integer():
-                return int(v)
-            return v if isinstance(v, int) and not isinstance(v, bool) else None
+                v = int(v)
+            if not isinstance(v, int) or isinstance(v, bool) or abs(v) > _MAX_SAFE_INTEGER:
+                return None
+            return v
 
         iat, exp = n("iat"), n("exp")
         raw = body.encode() if isinstance(body, str) else bytes(body)
@@ -292,6 +304,16 @@ class Verifier:
         # The claims Varketa never omits and an API authorizes on: the jti, the tenant, and the subject or grant.
         if not jti or not tenant or not (s("sub") or s("grant")):
             raise VerificationError("malformed")
+        # A PRESENT sub_id is exactly RFC 9493's iss_sub, its iss and sub non-empty strings, or the assertion is
+        # malformed: a verifier never exposes half a subject.
+        sub_id: Optional[dict[str, str]] = None
+        if "sub_id" in c:
+            v = c["sub_id"]
+            if (not isinstance(v, dict) or len(v) != 3 or v.get("format") != "iss_sub"
+                    or not isinstance(v.get("iss"), str) or not v["iss"]
+                    or not isinstance(v.get("sub"), str) or not v["sub"]):
+                raise VerificationError("malformed")
+            sub_id = {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
         # LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
         # The record lives through the last accepted second, exp + 60 s inclusive: whole seconds, at least 1.
         if not self._store.set_if_absent(f"{self._issuer}\0{jti}", exp + _SKEW - at + 1, at):
@@ -306,4 +328,6 @@ class Verifier:
             identity["approved_by"] = c["approved_by"]
         if c.get("probe") is True:
             identity["probe"] = True
+        if sub_id is not None:
+            identity["sub_id"] = sub_id
         return identity

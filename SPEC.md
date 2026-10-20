@@ -1,9 +1,9 @@
-# Verifying the Varketa acting principal (claim set version 3)
+# Verifying the Varketa acting principal (claim set versions 3 and 4)
 
 When a Varketa agent calls your API, each request carries a `Varketa-Acting-Principal` header: a compact JWS that says
 on whose behalf the call is made, for which of your customer orgs, and for exactly which request. This page is the
-language-neutral specification. The [vectors](vectors/v3) are its normative half: a verifier that disagrees with a
-vector is wrong. The libraries in this repository implement it.
+language-neutral specification. The [vectors](vectors) (one set per claim set, §6) are its normative half: a verifier
+that disagrees with a vector is wrong. The libraries in this repository implement it.
 
 Without verification your API sees only Varketa's service credential. It then cannot apply per-user or per-org
 permissions, and its audit log names Varketa for every action.
@@ -46,7 +46,7 @@ its code is the first one it breaks.
 | 5 | The `kid` is in the set (§2.4) | `kid` |
 | 6 | The signature verifies under that key, whose type and curve match `alg` (a signature or claims part that is not base64url, or claims that are not a JSON object, is `malformed` here) | `signature` |
 | 7 | `iss` equals the configured issuer | `iss` |
-| 8 | `ver` is a version this verifier knows (3) | `ver` |
+| 8 | `ver` is a version this verifier knows (3 or 4) | `ver` |
 | 9 | `adopter` equals the configured adopter id | `adopter` |
 | 10 | `aud` equals the configured audience | `aud` |
 | 11 | `iat` is no more than 60 s after now | `not_yet_valid` |
@@ -55,7 +55,7 @@ its code is the first one it breaks.
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.
@@ -76,6 +76,14 @@ An accepted assertion exposes:
 - `sub` and/or `grant`: the acting person or grant.
 - `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`), `presence`
   (`delegated`, `interactive`, `confirmed`), `run_id` (absent on a person's own act), `approved_by`.
+- `sub_id` (claim set 4): the acting person as YOUR identity provider names them, an
+  [RFC 9493](https://www.rfc-editor.org/rfc/rfc9493) subject identifier `{"format": "iss_sub", "iss": "<your IdP's
+  issuer>", "sub": "<its subject>"}`. It is present when Varketa holds the acting grant's subject at your provider
+  (recorded when the person signed in through it), and absent otherwise, never empty. Look your own user up by it
+  instead of mapping Varketa's `sub`, and by the pair: a `sub` is unique only within its `iss`, so match `iss` to an
+  issuer you trust as well. A present `sub_id` has exactly those three members, `format`
+  `iss_sub` and `iss` and `sub` non-empty strings, or the assertion is refused `malformed` (check 17): a verifier
+  never exposes half a subject. It is judged the same way whatever the `ver`.
 - `probe: true` on Varketa's verification probe only. A probe is verified like any other assertion, carries a fixed
   synthetic subject rather than a real person's, and reaches only a read. Act on no real data for it.
 
@@ -93,8 +101,8 @@ database insert). The libraries' in-memory store is correct for one instance onl
 
 ## 6. The vectors
 
-`vectors/v3/manifest.json` names the configuration every case runs under and the case list. Each
-`vectors/v3/cases/<name>.json` is one verifier's life:
+`vectors/v<ver>/manifest.json` names the configuration every case runs under and the case list. Each
+`vectors/v<ver>/cases/<name>.json` is one verifier's life:
 
 - `fetches`: what each URL answers. The i-th fetch of a URL gets its i-th response, and the last one repeats. A
   missing `body` is an empty one.
@@ -105,7 +113,12 @@ database insert). The libraries' in-memory store is correct for one instance onl
 Run each case with a fresh verifier and a fresh in-memory store, the clock set to each step's `now`. The keys are
 throwaway keys used only by the vectors.
 
+A verifier passes the set of every claim-set version it accepts. One case in an older set can be superseded by a
+newer version: `v3`'s `unknown-ver` presents `ver` 4, unknown when `v3` was cut, so a verifier that accepts 4 accepts
+it. `v4`'s `unknown-ver` (`ver` 5) carries that check now.
+
 ## 7. Versions
 
-`ver` 3 is the only claim set. Each library release names the claim-set versions it accepts and the vector version it
-passes. See [EVOLUTION.md](EVOLUTION.md).
+`ver` 4 is the current claim set: claim set 3 plus `sub_id` (§4). A verifier accepts 3 and 4, and passes
+`vectors/v4` and `vectors/v3` (§6). Each library release names the claim-set versions it accepts and the vector
+version it passes. See [EVOLUTION.md](EVOLUTION.md).

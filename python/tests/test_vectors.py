@@ -6,10 +6,20 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from varketa_verify_acting_principal import FetchedDocument, InMemoryReplayStore, VerificationError, Verifier
+from varketa_verify_acting_principal import (SUPPORTED_VERSIONS, FetchedDocument, InMemoryReplayStore, VerificationError,
+                                             Verifier)
 
-DIR = Path(__file__).resolve().parents[2] / "vectors" / "v3"
+VECTORS = Path(__file__).resolve().parents[2] / "vectors"
+# The current set, which the tests below the vectors also read.
+DIR = VECTORS / "v4"
 MANIFEST = json.loads((DIR / "manifest.json").read_text())
+# Each accepted claim-set version's set, and the cases a later version supersedes, each with its reason. A superseded
+# case is not skipped: its refusal no longer holds, so its first step must now be accepted.
+SETS = (
+    ("v4", {}),
+    # v3's unknown-ver presents ver 4, unknown when v3 was cut and accepted since; v4's unknown-ver presents ver 5.
+    ("v3", {"unknown-ver": "ver 4 is a known claim set since v4"}),
+)
 JWKS = MANIFEST["config"]["issuer"] + "/.well-known/varketa-acting-principal/jwks.json"
 
 
@@ -18,9 +28,9 @@ def b64(s: str) -> bytes:
 
 
 class Harness:
-    def __init__(self, case: dict) -> None:
+    def __init__(self, case: dict, manifest: dict = MANIFEST) -> None:
         self.case, self.counts, self.now = case, {}, 0
-        cfg = MANIFEST["config"]
+        cfg = manifest["config"]
         self.verifier = Verifier(issuer=cfg["issuer"], adopter=cfg["adopter"], audience=cfg["audience"],
                                  replay_store=InMemoryReplayStore(single_instance=True),
                                  clock=lambda: self.now, fetch_document=self.fetch)
@@ -47,23 +57,38 @@ class Harness:
 
 class Vectors(unittest.TestCase):
     def test_the_case_set_is_the_manifests(self) -> None:
-        self.assertEqual(sorted(p.stem for p in (DIR / "cases").glob("*.json")), sorted(MANIFEST["cases"]))
+        self.assertEqual(sorted(int(version[1:]) for version, _ in SETS), sorted(SUPPORTED_VERSIONS))
+        for version, superseded in SETS:
+            with self.subTest(set=version):
+                manifest = json.loads((VECTORS / version / "manifest.json").read_text())
+                self.assertEqual(sorted(p.stem for p in (VECTORS / version / "cases").glob("*.json")),
+                                 sorted(manifest["cases"]))
+                self.assertTrue(manifest["cases"], "an empty set proves nothing")
+                self.assertEqual(f"v{manifest['claim_set_ver']}", version)
+                for name in superseded:
+                    self.assertIn(name, manifest["cases"])
 
     def test_every_vector(self) -> None:
-        for name in MANIFEST["cases"]:
-            with self.subTest(vector=name):
-                case = json.loads((DIR / "cases" / f"{name}.json").read_text())
-                h = Harness(case)
-                for i, step in enumerate(case["steps"]):
-                    identity, code = h.verify(step)
-                    want = step["expect"]
-                    if want["accept"]:
-                        self.assertEqual(code, "", f"step {i} refused")
-                        self.assertEqual(identity, want["identity"], f"step {i} identity")
-                    else:
-                        self.assertEqual(code, want["code"], f"step {i} code")
-                    if want.get("jwks_fetches"):
-                        self.assertEqual(h.counts.get(JWKS), want["jwks_fetches"], f"step {i} key-set fetches")
+        for version, superseded in SETS:
+            manifest = json.loads((VECTORS / version / "manifest.json").read_text())
+            jwks = manifest["config"]["issuer"] + "/.well-known/varketa-acting-principal/jwks.json"
+            for name in manifest["cases"]:
+                with self.subTest(set=version, vector=name):
+                    case = json.loads((VECTORS / version / "cases" / f"{name}.json").read_text())
+                    h = Harness(case, manifest)
+                    if name in superseded:
+                        self.assertEqual(h.verify(case["steps"][0])[1], "", f"superseded: {superseded[name]}")
+                        continue
+                    for i, step in enumerate(case["steps"]):
+                        identity, code = h.verify(step)
+                        want = step["expect"]
+                        if want["accept"]:
+                            self.assertEqual(code, "", f"step {i} refused")
+                            self.assertEqual(identity, want["identity"], f"step {i} identity")
+                        else:
+                            self.assertEqual(code, want["code"], f"step {i} code")
+                        if want.get("jwks_fetches"):
+                            self.assertEqual(h.counts.get(jwks), want["jwks_fetches"], f"step {i} key-set fetches")
 
     def test_of_two_concurrent_copies_exactly_one_is_accepted(self) -> None:
         case = json.loads((DIR / "cases" / "good.json").read_text())
@@ -164,25 +189,78 @@ class Vectors(unittest.TestCase):
         self.assertTrue(store.set_if_absent("key", 2, 102))
 
     def test_integer_valued_json_numbers_are_not_fractional(self) -> None:
-        case = json.loads((DIR / "cases" / "good.json").read_text())
-        step = case["steps"][0]
+        identity, code = _resigned(lambda c: c.update({f: float(c[f]) for f in ("ver", "iat", "exp")}))
+        self.assertEqual(code, "")
+        self.assertEqual(identity, json.loads((DIR / "cases" / "good.json").read_text())["steps"][0]["expect"]["identity"])
+
+    def test_a_present_sub_id_is_exactly_iss_sub(self) -> None:
+        # Shapes no vector carries: a fourth member, null, an array, a non-string subject. And one sub_id on ver 3, which
+        # is judged as on ver 4.
+        good = {"format": "iss_sub", "iss": "https://idp.adopter.example", "sub": "user-8812"}
+        for sub_id, ver, want in ((dict(good, email="user@adopter.example"), 4, "malformed"), (None, 4, "malformed"),
+                                  ([good], 4, "malformed"), (dict(good, sub=8812), 4, "malformed"),
+                                  (dict(good, iss=""), 3, "malformed"), (good, 3, "")):
+            with self.subTest(sub_id=sub_id, ver=ver):
+                identity, code = _resigned(lambda c: c.update(sub_id=sub_id, ver=ver))
+                self.assertEqual(code, want)
+                if not want:
+                    self.assertEqual(identity["sub_id"], good)
+
+
+    def test_an_assertion_refused_for_its_sub_id_leaves_its_jti_unrecorded(self) -> None:
+        # The sub_id check runs before the replay record: the same jti, well formed, is then accepted.
+        bad, good = _resign_both(lambda c: c.update(sub_id={"format": "email"}), lambda c: None)
+        self.assertEqual((bad, good), ("malformed", ""))
+
+    def test_json_nested_past_the_recursion_limit_is_malformed(self) -> None:
+        head = base64.urlsafe_b64encode(b"[" * 100000).rstrip(b"=").decode()
+        self.assertEqual(Harness({"fetches": {}}).verify({"now": 0, "request": {"method": "GET", "url": "https://x",
+            "body_b64url": ""}, "assertion": f"{head}.e30.AAAA"})[1], "malformed")
+
+    def test_a_number_past_the_safe_integers_is_absent(self) -> None:
+        # As in the JavaScript verifier: 2^60 is not a safe integer, so exp is absent and the refusal is expired.
+        self.assertEqual(_resigned(lambda c: c.update(exp=2**60))[1], "expired")
+        self.assertEqual(_resigned(lambda c: c.update(exp=float(2**60)))[1], "expired")
+
+    def test_max_age_past_int_digit_limit_is_the_cap(self) -> None:
+        from varketa_verify_acting_principal import _max_age
+        for header, want in (("max-age=" + "9" * 5000, 300), ("max-age=" + "0" * 5000 + "5", 5), ("max-age=0", 0),
+                             ("max-age=301", 300), ("max-age=0300", 300), ("no-cache", 0),
+                             ("no-cache, \tMAX-AGE=120", 120), ("max-age=\u0663\u0660\u0660", 0),
+                             ("no-cache,\x85max-age=120", 0), ("\xa0max-age=120", 0)):
+            with self.subTest(header=header[:20]):
+                self.assertEqual(_max_age(header), want)
+
+def _resigned(change):
+    """good's first step, its claims changed by change and signed again under a key the case's key set then carries."""
+    case, step, sign = _signing_harness()
+    return case.verify(dict(step, assertion=sign(change)))
+
+
+def _resign_both(first, second):
+    """Two re-signings of good's first step, verified in order by ONE verifier; their two refusal codes."""
+    case, step, sign = _signing_harness()
+    return case.verify(dict(step, assertion=sign(first)))[1], case.verify(dict(step, assertion=sign(second)))[1]
+
+
+def _signing_harness():
+    case = json.loads((DIR / "cases" / "good.json").read_text())
+    step = case["steps"][0]
+    key = Ed25519PrivateKey.generate()
+
+    def enc(raw):
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    def sign(change):
         claims = json.loads(b64(step["assertion"].split(".")[1]))
-        for field in ("ver", "iat", "exp"):
-            claims[field] = float(claims[field])
-        key = Ed25519PrivateKey.generate()
-
-        def enc(raw):
-            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-
+        change(claims)
         head = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "test"}).encode())
         body = enc(json.dumps(claims).encode())
-        sig = enc(key.sign(f"{head}.{body}".encode()))
-        case["fetches"][JWKS][0]["body"]["keys"] = [{"kid": "test", "kty": "OKP", "crv": "Ed25519",
-            "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]
-        identity, code = Harness(case).verify(dict(step, assertion=f"{head}.{body}.{sig}"))
-        self.assertEqual(code, "")
-        self.assertEqual(identity, step["expect"]["identity"])
+        return f"{head}.{body}.{enc(key.sign(f'{head}.{body}'.encode()))}"
 
+    case["fetches"][JWKS][0]["body"]["keys"] = [{"kid": "test", "kty": "OKP", "crv": "Ed25519",
+        "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]
+    return Harness(case), step, sign
 
 if __name__ == "__main__":
     unittest.main()

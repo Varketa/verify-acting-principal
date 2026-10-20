@@ -1,10 +1,10 @@
-// @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set version 3.
-// The normative half is ../../SPEC.md and ../../vectors/v3; this file follows the spec's order.
+// @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set versions 3 and 4.
+// The normative half is ../../SPEC.md and ../../vectors/v4; this file follows the spec's order.
 import { createHash, createPublicKey, verify as verifySignature, type KeyObject } from "node:crypto";
 
 export const HEADER = "Varketa-Acting-Principal";
 export const TYP = "varketa-acting-principal+jwt";
-export const SUPPORTED_VERSIONS: readonly number[] = [3];
+export const SUPPORTED_VERSIONS: readonly number[] = [3, 4];
 const ALGORITHMS: Record<string, { hash: string | null; kty: string; crv: string }> = {
   ES256: { hash: "sha256", kty: "EC", crv: "P-256" },
   ES384: { hash: "sha384", kty: "EC", crv: "P-384" },
@@ -80,9 +80,13 @@ export interface Options {
   requestUrl?: (url: string) => string;
 }
 
+/** The caller as the adopter's own identity provider names it: RFC 9493's iss_sub subject identifier. */
+export interface SubjectId { format: "iss_sub"; iss: string; sub: string }
+
 export interface Identity {
   sub?: string; grant?: string; tenant: string; adopter: string; persona?: string; scopes?: string[];
   act_kind?: string; presence?: string; run_id?: string; approved_by?: unknown; probe?: true;
+  sub_id?: SubjectId;
 }
 
 export interface Request { method: string; url: string; body: Uint8Array | string; assertion: string | null | undefined }
@@ -102,7 +106,8 @@ const defaultFetch: FetchDocument = async (url) => {
 };
 
 function maxAge(cacheControl: string | null): number {
-  const m = /(?:^|,)\s*max-age=(\d+)/i.exec(cacheControl ?? "");
+  // HTTP's own grammar, as in the Python verifier: optional whitespace is space or tab, and digits are ASCII.
+  const m = /(?:^|,)[ \t]*max-age=([0-9]+)/i.exec(cacheControl ?? "");
   return m ? Math.min(Number(m[1]), MAX_CACHE) : 0;
 }
 
@@ -204,6 +209,12 @@ export class Verifier {
     }
     const kid = typeof header.kid === "string" ? header.kid : "";
     let jwk = this.#keys?.get(kid);
+    // A refetch already in flight (another request's, for a rotated-in kid) may bring this kid: wait for it rather than
+    // refuse, as the Python verifier's lock does.
+    if (!jwk && this.#loading) {
+      await this.#loading.catch(() => false);
+      jwk = this.#keys?.get(kid);
+    }
     if (!jwk && (this.#lastRefetch === null || now - this.#lastRefetch >= REFETCH_INTERVAL)) {
       this.#lastRefetch = now;
       if (await this.#load(now)) jwk = this.#keys?.get(kid);
@@ -247,6 +258,17 @@ export class Verifier {
     const jti = str("jti"), tenant = str("tenant");
     // The claims Varketa never omits and an API authorizes on: the jti, the tenant, and the subject or grant.
     if (!jti || !tenant || (!str("sub") && !str("grant"))) throw new VerificationError("malformed");
+    // A PRESENT sub_id is exactly RFC 9493's iss_sub, its iss and sub non-empty strings, or the assertion is malformed:
+    // a verifier never exposes half a subject.
+    let subId: SubjectId | undefined;
+    if (Object.hasOwn(c, "sub_id")) {
+      const v = c.sub_id as Record<string, unknown> | null;
+      if (typeof v !== "object" || v === null || Array.isArray(v) || Object.keys(v).length !== 3 || v.format !== "iss_sub"
+        || typeof v.iss !== "string" || v.iss === "" || typeof v.sub !== "string" || v.sub === "") {
+        throw new VerificationError("malformed");
+      }
+      subId = { format: "iss_sub", iss: v.iss, sub: v.sub };
+    }
     // LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
     // The record lives through the last accepted second, exp + 60 s inclusive: a whole number of seconds, at least 1.
     if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, exp + SKEW - at + 1, at))) {
@@ -260,6 +282,7 @@ export class Verifier {
     if (Array.isArray(c.scopes)) id.scopes = c.scopes.filter((s): s is string => typeof s === "string");
     if (c.approved_by !== undefined) id.approved_by = c.approved_by;
     if (c.probe === true) id.probe = true;
+    if (subId) id.sub_id = subId;
     return id;
   }
 }

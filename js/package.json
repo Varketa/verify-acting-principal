@@ -1,7 +1,7 @@
 {
   "name": "@varketa/verify-acting-principal",
-  "version": "0.1.0",
-  "description": "Verify the Varketa-Acting-Principal header (claim set version 3) on an API that Varketa's agents call.",
+  "version": "0.2.0",
+  "description": "Verify the Varketa-Acting-Principal header (claim set versions 3 and 4) on an API that Varketa's agents call.",
   "license": "MIT",
   "type": "module",
   "exports": "./dist/index.js",
@@ -20,9 +20,10 @@
   },
   "varketa": {
     "claimSetVersions": [
-      3
+      3,
+      4
     ],
-    "vectors": "v3"
+    "vectors": "v4"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
