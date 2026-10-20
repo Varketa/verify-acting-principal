@@ -179,7 +179,9 @@ export class Verifier {
     const r = await this.#get(this.#jwksUri);
     let keys: unknown;
     try { keys = r && json(Buffer.from(r.body)).keys; } catch { keys = undefined; }
-    if (!r || !Array.isArray(keys)) { this.#keys = null; return false; }
+    // A failed key-set fetch leaves the cache as it was: a fresh set stays usable until its max-age (SPEC §2.3 refuses only
+    // after expiry), so an unknown kid's refetch against a failing issuer cannot discard it.
+    if (!r || !Array.isArray(keys)) return false;
     this.#keys = new Map(keys.filter((k) => k && typeof k.kid === "string").map((k) => [k.kid as string, k]));
     this.#fetchedAt = now;
     this.#maxAge = maxAge(r.cacheControl);

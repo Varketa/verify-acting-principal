@@ -1,6 +1,6 @@
 {
   "name": "@varketa/verify-acting-principal",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Verify the Varketa-Acting-Principal header (claim set versions 3 and 4) on an API that Varketa's agents call.",
   "license": "MIT",
   "type": "module",

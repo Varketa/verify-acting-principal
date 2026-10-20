@@ -29,8 +29,9 @@ It also REQUIRES a replay store (§5). There is no silent default.
    fails after expiry refuses EVERY assertion (`jwks_unavailable`): no stale-if-error.
 4. On a `kid` the cached set lacks, refetch the set once, at most once a minute, and refuse a `kid` still absent
    (`kid`).
-5. Do not follow a redirect, and bound each fetch (the libraries use 10 s and 64 KiB): a stalled or oversized answer
-   is a failed fetch.
+5. Do not follow a redirect, and bound each fetch as a whole, not each read (the libraries use 10 s and 64 KiB): a
+   stalled, dripping or oversized answer is a failed fetch. Fetch outside any lock a verification of a cached key
+   would wait on, so one slow issuer answer delays only the verifications that need it.
 
 ## 3. Check, in this order
 
