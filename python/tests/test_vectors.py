@@ -125,9 +125,27 @@ class Vectors(unittest.TestCase):
         for issuer in ("http://api.varketa.ai", "https://api.varketa.ai/", "https://api.varketa.ai/x", "file:///etc/x"):
             with self.subTest(issuer=issuer), self.assertRaisesRegex(ValueError, "https:// origin"):
                 Verifier(**dict(ok, issuer=issuer))
-        for audience in ("http://api.example", "https://api.example/", "https://api.example/x", "https://user:pass@api.example", "https://api.example:99999"):
+        for audience in ("http://api.example", "https://api.example/", "https://api.example/x", "https://user:pass@api.example", "https://api.example:99999",
+                         # Not an origin as written: an empty or default port, an uppercase host and a non-ASCII host
+                         # each name an origin spelled otherwise, which the aud Varketa signs never matches. Both
+                         # libraries refuse the same set.
+                         "https://api.example:", "https://API.example", "https://api.example:443", "https://bücher.example"):
             with self.subTest(audience=audience), self.assertRaises(ValueError):
                 Verifier(**dict(ok, audience=audience))
+
+    def test_check_6_judges_a_signature_part_that_is_not_base64url_before_the_keys_type(self) -> None:
+        # The current key is P-256; alg ES384 does not match it. A signature part that is not base64url is malformed
+        # even so, as in the JS verifier: the same assertion gets the same code from both libraries.
+        case = json.loads((DIR / "cases" / "good.json").read_text())
+        step = case["steps"][0]
+        parts = step["assertion"].split(".")
+        header = json.loads(b64(parts[0]))
+        mismatched = base64.urlsafe_b64encode(json.dumps(dict(header, alg="ES384")).encode()).rstrip(b"=").decode()
+        for signature, want in (("A", "malformed"), (parts[2], "signature")):
+            with self.subTest(signature=signature):
+                h = Harness(case)
+                _, code = h.verify(dict(step, assertion=f"{mismatched}.{parts[1]}.{signature}"))
+                self.assertEqual(code, want)
 
     def test_a_segment_with_a_trailing_newline_is_malformed(self) -> None:
         # "AAAA\n" is one the lenient decoder would decode (it drops the newline), so only the alphabet check refuses it.

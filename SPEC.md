@@ -49,7 +49,7 @@ its code is the first one it breaks.
 | 3 | `alg` is `ES256`, `ES384` or `EdDSA`; `none`, RSA and HMAC are refused | `alg` |
 | 4 | The key set is fresh (§2.3) | `jwks_unavailable` |
 | 5 | The `kid` is in the set (§2.4) | `kid` |
-| 6 | The signature verifies under that key, whose type and curve match `alg` (a signature or claims part that is not base64url, or claims that are not a JSON object, is `malformed` here) | `signature` |
+| 6 | The signature verifies under that key, whose type and curve match `alg` (a signature part that is not base64url is `malformed`, judged before the key's type; a claims part that is not base64url, or claims that are not a JSON object, is `malformed` once the signature verifies) | `signature` |
 | 7 | `iss` equals the configured issuer | `iss` |
 | 8 | `ver` is a version this verifier knows (3, 4 or 5) | `ver` |
 | 9 | `adopter` equals the configured adopter id | `adopter` |

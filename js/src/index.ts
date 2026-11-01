@@ -230,6 +230,8 @@ export class Verifier {
     if ((this.#mdMaxAge > 0 && keyAt - this.#mdFetchedAt >= this.#mdMaxAge) ||
         (this.#maxAge > 0 && keyAt - this.#fetchedAt >= this.#maxAge)) throw new VerificationError("jwks_unavailable");
     if (!jwk) throw new VerificationError("kid");
+    // A signature part that is not base64url is malformed before the key's type is judged, as in the Python verifier.
+    const sig = b64url(parts[2]);
     let key: KeyObject;
     try {
       if (jwk.kty !== alg.kty || jwk.crv !== alg.crv || (jwk.alg !== undefined && jwk.alg !== header.alg)) throw new Error();
@@ -238,7 +240,6 @@ export class Verifier {
       throw new VerificationError("signature");
     }
     const signed = Buffer.from(`${parts[0]}.${parts[1]}`);
-    const sig = b64url(parts[2]);
     const ok = alg.hash === null
       ? verifySignature(null, signed, key, sig)
       : verifySignature(alg.hash, signed, { key, dsaEncoding: "ieee-p1363" }, sig);
