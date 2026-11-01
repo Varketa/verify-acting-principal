@@ -1,10 +1,10 @@
-// @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set versions 3 and 4.
-// The normative half is ../../SPEC.md and ../../vectors/v4; this file follows the spec's order.
+// @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set versions 3, 4 and 5.
+// The normative half is ../../SPEC.md and ../../vectors/v5; this file follows the spec's order.
 import { createHash, createPublicKey, verify as verifySignature, type KeyObject } from "node:crypto";
 
 export const HEADER = "Varketa-Acting-Principal";
 export const TYP = "varketa-acting-principal+jwt";
-export const SUPPORTED_VERSIONS: readonly number[] = [3, 4];
+export const SUPPORTED_VERSIONS: readonly number[] = [3, 4, 5];
 const ALGORITHMS: Record<string, { hash: string | null; kty: string; crv: string }> = {
   ES256: { hash: "sha256", kty: "EC", crv: "P-256" },
   ES384: { hash: "sha384", kty: "EC", crv: "P-384" },
@@ -83,10 +83,13 @@ export interface Options {
 /** The caller as the adopter's own identity provider names it: RFC 9493's iss_sub subject identifier. */
 export interface SubjectId { format: "iss_sub"; iss: string; sub: string }
 
+/** The actor performing a customer's own act (act_kind on_behalf): RFC 8693's act, the adopter's backend. */
+export interface Actor { sub: string; iss: string }
+
 export interface Identity {
   sub?: string; grant?: string; tenant: string; adopter: string; persona?: string; scopes?: string[];
   act_kind?: string; presence?: string; run_id?: string; approved_by?: unknown; probe?: true;
-  sub_id?: SubjectId;
+  sub_id?: SubjectId; act?: Actor;
 }
 
 export interface Request { method: string; url: string; body: Uint8Array | string; assertion: string | null | undefined }
@@ -272,6 +275,18 @@ export class Verifier {
       }
       subId = { format: "iss_sub", iss: v.iss, sub: v.sub };
     }
+    // A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
+    // carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
+    let actor: Actor | undefined;
+    if (Object.hasOwn(c, "act") !== (str("act_kind") === "on_behalf")) throw new VerificationError("malformed");
+    if (Object.hasOwn(c, "act")) {
+      const v = c.act as Record<string, unknown> | null;
+      if (typeof v !== "object" || v === null || Array.isArray(v) || Object.keys(v).length !== 2
+        || typeof v.sub !== "string" || v.sub === "" || typeof v.iss !== "string" || v.iss === "") {
+        throw new VerificationError("malformed");
+      }
+      actor = { sub: v.sub, iss: v.iss };
+    }
     // LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
     // The record lives through the last accepted second, exp + 60 s inclusive: a whole number of seconds, at least 1.
     if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, exp + SKEW - at + 1, at))) {
@@ -286,6 +301,7 @@ export class Verifier {
     if (c.approved_by !== undefined) id.approved_by = c.approved_by;
     if (c.probe === true) id.probe = true;
     if (subId) id.sub_id = subId;
+    if (actor) id.act = actor;
     return id;
   }
 }

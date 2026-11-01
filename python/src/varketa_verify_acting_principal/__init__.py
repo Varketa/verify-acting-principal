@@ -1,6 +1,6 @@
-"""Verify the Varketa-Acting-Principal header, claim set versions 3 and 4.
+"""Verify the Varketa-Acting-Principal header, claim set versions 3, 4 and 5.
 
-The normative half is SPEC.md and vectors/v4 at the repository root; this module follows the spec's order.
+The normative half is SPEC.md and vectors/v5 at the repository root; this module follows the spec's order.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ __all__ = [
 
 HEADER = "Varketa-Acting-Principal"
 TYP = "varketa-acting-principal+jwt"
-SUPPORTED_VERSIONS = (3, 4)
+SUPPORTED_VERSIONS = (3, 4, 5)
 METADATA_PATH = "/.well-known/varketa-acting-principal"
 _ALGORITHMS = {
     "ES256": (hashes.SHA256, "EC", "P-256", ec.SECP256R1, 32),
@@ -410,6 +410,18 @@ class Verifier:
                     or not isinstance(v.get("sub"), str) or not v["sub"]):
                 raise VerificationError("malformed")
             sub_id = {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
+        # A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
+        # carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
+        actor: Optional[dict[str, str]] = None
+        if ("act" in c) != (s("act_kind") == "on_behalf"):
+            raise VerificationError("malformed")
+        if "act" in c:
+            v = c["act"]
+            if (not isinstance(v, dict) or len(v) != 2
+                    or not isinstance(v.get("sub"), str) or not v["sub"]
+                    or not isinstance(v.get("iss"), str) or not v["iss"]):
+                raise VerificationError("malformed")
+            actor = {"sub": v["sub"], "iss": v["iss"]}
         # LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
         # The record lives through the last accepted second, exp + 60 s inclusive: whole seconds, at least 1.
         if not self._store.set_if_absent(f"{self._issuer}\0{jti}", exp + _SKEW - at + 1, at):
@@ -426,4 +438,6 @@ class Verifier:
             identity["probe"] = True
         if sub_id is not None:
             identity["sub_id"] = sub_id
+        if actor is not None:
+            identity["act"] = actor
         return identity

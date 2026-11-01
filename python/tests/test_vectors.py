@@ -11,13 +11,15 @@ from varketa_verify_acting_principal import (SUPPORTED_VERSIONS, FetchedDocument
 
 VECTORS = Path(__file__).resolve().parents[2] / "vectors"
 # The current set, which the tests below the vectors also read.
-DIR = VECTORS / "v4"
+DIR = VECTORS / "v5"
 MANIFEST = json.loads((DIR / "manifest.json").read_text())
 # Each accepted claim-set version's set, and the cases a later version supersedes, each with its reason. A superseded
 # case is not skipped: its refusal no longer holds, so its first step must now be accepted.
 SETS = (
-    ("v4", {}),
-    # v3's unknown-ver presents ver 4, unknown when v3 was cut and accepted since; v4's unknown-ver presents ver 5.
+    ("v5", {}),
+    # Each set's unknown-ver presents the next version, unknown when that set was cut and accepted since: v3's ver 4,
+    # v4's ver 5. v5's unknown-ver presents ver 6.
+    ("v4", {"unknown-ver": "ver 5 is a known claim set since v5"}),
     ("v3", {"unknown-ver": "ver 4 is a known claim set since v4"}),
 )
 JWKS = MANIFEST["config"]["issuer"] + "/.well-known/varketa-acting-principal/jwks.json"
