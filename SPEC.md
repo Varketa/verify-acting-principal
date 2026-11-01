@@ -1,4 +1,4 @@
-# Verifying the Varketa acting principal (claim set versions 3 and 4)
+# Verifying the Varketa acting principal (claim set versions 3, 4 and 5)
 
 When a Varketa agent calls your API, each request carries a `Varketa-Acting-Principal` header: a compact JWS that says
 on whose behalf the call is made, for which of your customer orgs, and for exactly which request. This page is the
@@ -14,6 +14,10 @@ A verifier REQUIRES three settings and refuses to start without any of them:
 
 - **issuer**: Varketa's issuer, an `https://` origin with no path: `https://api.varketa.ai` in production. Refuse any
   other scheme: the key set is fetched from it, and in cleartext a network attacker would choose your keys.
+  `https://app.dev.varketa.ai` is Varketa's development issuer, for building against Varketa's development
+  deployment. It is NOT production: configure it only on a development or test instance of your API, never on the one
+  your customers use. Its keys are discovered the same way (§2), from
+  `https://app.dev.varketa.ai/.well-known/varketa-acting-principal`.
 - **adopter**: your API's adopter id, shown on Varketa's Tool sources page.
 - **audience**: your API's own origin (`https://host[:port]`), the `aud` Varketa signs.
 
@@ -45,9 +49,9 @@ its code is the first one it breaks.
 | 3 | `alg` is `ES256`, `ES384` or `EdDSA`; `none`, RSA and HMAC are refused | `alg` |
 | 4 | The key set is fresh (§2.3) | `jwks_unavailable` |
 | 5 | The `kid` is in the set (§2.4) | `kid` |
-| 6 | The signature verifies under that key, whose type and curve match `alg` (a signature or claims part that is not base64url, or claims that are not a JSON object, is `malformed` here) | `signature` |
+| 6 | The signature verifies under that key, whose type and curve match `alg` (a signature part that is not base64url is `malformed`, judged before the key's type; a claims part that is not base64url, or claims that are not a JSON object, is `malformed` once the signature verifies) | `signature` |
 | 7 | `iss` equals the configured issuer | `iss` |
-| 8 | `ver` is a version this verifier knows (3 or 4) | `ver` |
+| 8 | `ver` is a version this verifier knows (3, 4 or 5) | `ver` |
 | 9 | `adopter` equals the configured adopter id | `adopter` |
 | 10 | `aud` equals the configured audience | `aud` |
 | 11 | `iat` is no more than 60 s after now | `not_yet_valid` |
@@ -56,7 +60,7 @@ its code is the first one it breaks.
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.
@@ -75,8 +79,18 @@ An accepted assertion exposes:
 - `tenant`: **the org to authorize against**, your adopter org or one of its customer orgs. An API that serves
   customer orgs MUST authorize every record against `tenant`.
 - `sub` and/or `grant`: the acting person or grant.
-- `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`), `presence`
-  (`delegated`, `interactive`, `confirmed`), `run_id` (absent on a person's own act), `approved_by`.
+- `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`, and from claim set 5
+  `discovery` and `on_behalf`, below), `presence` (`delegated`, `interactive`, `confirmed`), `run_id` (absent on a
+  person's own act), `approved_by`.
+- `act_kind` `discovery` (claim set 5): Varketa reading your API's own surface, such as an MCP `tools/list` or your
+  OpenAPI document, to learn what it offers. It names no tool and no run. Its `sub` is `varketa-discovery` when no
+  grant made the request; otherwise `grant` names the grant. Act on no customer's data for it.
+- `act` (claim set 5, `act_kind` `on_behalf` only): a customer's own act that your backend performs through Varketa.
+  `sub` is the customer, and `act` is the actor, an [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693#section-4.1)
+  actor claim `{"sub": "<your backend's admission id>", "iss": "<the issuer that admission asserts>"}`; `presence` is
+  `delegated`. A present `act` has exactly those two members, both non-empty strings. An `on_behalf` assertion
+  without one, or an `act` on any other `act_kind`, is refused `malformed` (check 17): a verifier never exposes half
+  an actor, nor an actor on a kind that has none.
 - `sub_id` (claim set 4): the acting person as YOUR identity provider names them, an
   [RFC 9493](https://www.rfc-editor.org/rfc/rfc9493) subject identifier `{"format": "iss_sub", "iss": "<your IdP's
   issuer>", "sub": "<its subject>"}`. It is present when Varketa holds the acting grant's subject at your provider
@@ -115,11 +129,13 @@ Run each case with a fresh verifier and a fresh in-memory store, the clock set t
 throwaway keys used only by the vectors.
 
 A verifier passes the set of every claim-set version it accepts. One case in an older set can be superseded by a
-newer version: `v3`'s `unknown-ver` presents `ver` 4, unknown when `v3` was cut, so a verifier that accepts 4 accepts
-it. `v4`'s `unknown-ver` (`ver` 5) carries that check now.
+newer version: each set's `unknown-ver` presents the next version, unknown when that set was cut, so a verifier that
+accepts the next version accepts it. `v3`'s presents `ver` 4 and `v4`'s presents `ver` 5; `v5`'s `unknown-ver`
+(`ver` 6) carries that check now.
 
 ## 7. Versions
 
-`ver` 4 is the current claim set: claim set 3 plus `sub_id` (§4). A verifier accepts 3 and 4, and passes
-`vectors/v4` and `vectors/v3` (§6). Each library release names the claim-set versions it accepts and the vector
+`ver` 5 is the current claim set: claim set 4 plus the `act_kind` values `discovery` and `on_behalf`, and `act`
+(§4). Claim set 4 is claim set 3 plus `sub_id`. A verifier accepts 3, 4 and 5, and passes `vectors/v5`, `vectors/v4`
+and `vectors/v3` (§6). Each library release names the claim-set versions it accepts and the vector
 version it passes. See [EVOLUTION.md](EVOLUTION.md).

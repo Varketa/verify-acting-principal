@@ -7,13 +7,15 @@ import { Verifier, InMemoryReplayStore, VerificationError, SUPPORTED_VERSIONS, t
 
 const vectors = join(import.meta.dirname, "..", "..", "vectors");
 // The current set, which the tests below the vectors also read.
-const dir = join(vectors, "v4");
+const dir = join(vectors, "v5");
 const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
 // Each accepted claim-set version's set, and the cases a later version supersedes, each with its reason. A superseded
 // case is not skipped: its refusal no longer holds, so its first step must now be accepted.
 const SETS: { version: string; superseded: Record<string, string> }[] = [
-  { version: "v4", superseded: {} },
-  // v3's unknown-ver presents ver 4, unknown when v3 was cut and accepted since; v4's unknown-ver presents ver 5.
+  { version: "v5", superseded: {} },
+  // Each set's unknown-ver presents the next version, unknown when that set was cut and accepted since: v3's ver 4,
+  // v4's ver 5. v5's unknown-ver presents ver 6.
+  { version: "v4", superseded: { "unknown-ver": "ver 5 is a known claim set since v5" } },
   { version: "v3", superseded: { "unknown-ver": "ver 4 is a known claim set since v4" } },
 ];
 
@@ -123,8 +125,11 @@ test("the verifier refuses to start without its issuer, adopter, audience or rep
   for (const issuer of ["http://api.varketa.ai", "https://api.varketa.ai/", "https://api.varketa.ai/x", "file:///etc/x"]) {
     assert.throws(() => new Verifier({ ...ok, issuer }), /https:\/\/ origin/, issuer);
   }
-  for (const audience of ["http://api.example", "https://api.example/", "https://api.example/x", "https://user:pass@api.example", "https://api.example:99999"]) {
-    assert.throws(() => new Verifier({ ...ok, audience }), /audience/);
+  for (const audience of ["http://api.example", "https://api.example/", "https://api.example/x", "https://user:pass@api.example", "https://api.example:99999",
+    // Not an origin as written: an empty or default port, an uppercase host and a non-ASCII host each name an origin
+    // spelled otherwise, which the aud Varketa signs never matches. Both libraries refuse the same set.
+    "https://api.example:", "https://API.example", "https://api.example:443", "https://bücher.example"]) {
+    assert.throws(() => new Verifier({ ...ok, audience }), /audience/, audience);
   }
 });
 
@@ -182,6 +187,21 @@ test("a JWS segment cannot hide a trailing newline or invalid base64url length",
     await assert.rejects(h.v.verify({ method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: `${parts[0]}.${parts[1]}.${signature}` }),
       (e) => e instanceof VerificationError && e.code === "malformed");
   }
+});
+
+test("check 6 judges a signature part that is not base64url before the key's type", async () => {
+  // The current key is P-256; alg ES384 does not match it. A signature part that is not base64url is malformed even
+  // so, as in the Python verifier: the same assertion gets the same code from both libraries.
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0], parts = s.assertion.split(".");
+  const header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+  const mismatched = Buffer.from(JSON.stringify({ ...header, alg: "ES384" })).toString("base64url");
+  const h = harness(c);
+  h.setNow(s.now);
+  await assert.rejects(h.v.verify({ method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: `${mismatched}.${parts[1]}.A` }),
+    (e) => e instanceof VerificationError && e.code === "malformed");
+  await assert.rejects(h.v.verify({ method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: `${mismatched}.${parts[1]}.${parts[2]}` }),
+    (e) => e instanceof VerificationError && e.code === "signature");
 });
 
 test("malformed UTF-8 in a header cannot be repaired into JSON", async () => {

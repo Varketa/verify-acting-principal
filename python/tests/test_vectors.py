@@ -11,13 +11,15 @@ from varketa_verify_acting_principal import (SUPPORTED_VERSIONS, FetchedDocument
 
 VECTORS = Path(__file__).resolve().parents[2] / "vectors"
 # The current set, which the tests below the vectors also read.
-DIR = VECTORS / "v4"
+DIR = VECTORS / "v5"
 MANIFEST = json.loads((DIR / "manifest.json").read_text())
 # Each accepted claim-set version's set, and the cases a later version supersedes, each with its reason. A superseded
 # case is not skipped: its refusal no longer holds, so its first step must now be accepted.
 SETS = (
-    ("v4", {}),
-    # v3's unknown-ver presents ver 4, unknown when v3 was cut and accepted since; v4's unknown-ver presents ver 5.
+    ("v5", {}),
+    # Each set's unknown-ver presents the next version, unknown when that set was cut and accepted since: v3's ver 4,
+    # v4's ver 5. v5's unknown-ver presents ver 6.
+    ("v4", {"unknown-ver": "ver 5 is a known claim set since v5"}),
     ("v3", {"unknown-ver": "ver 4 is a known claim set since v4"}),
 )
 JWKS = MANIFEST["config"]["issuer"] + "/.well-known/varketa-acting-principal/jwks.json"
@@ -123,9 +125,27 @@ class Vectors(unittest.TestCase):
         for issuer in ("http://api.varketa.ai", "https://api.varketa.ai/", "https://api.varketa.ai/x", "file:///etc/x"):
             with self.subTest(issuer=issuer), self.assertRaisesRegex(ValueError, "https:// origin"):
                 Verifier(**dict(ok, issuer=issuer))
-        for audience in ("http://api.example", "https://api.example/", "https://api.example/x", "https://user:pass@api.example", "https://api.example:99999"):
+        for audience in ("http://api.example", "https://api.example/", "https://api.example/x", "https://user:pass@api.example", "https://api.example:99999",
+                         # Not an origin as written: an empty or default port, an uppercase host and a non-ASCII host
+                         # each name an origin spelled otherwise, which the aud Varketa signs never matches. Both
+                         # libraries refuse the same set.
+                         "https://api.example:", "https://API.example", "https://api.example:443", "https://bücher.example"):
             with self.subTest(audience=audience), self.assertRaises(ValueError):
                 Verifier(**dict(ok, audience=audience))
+
+    def test_check_6_judges_a_signature_part_that_is_not_base64url_before_the_keys_type(self) -> None:
+        # The current key is P-256; alg ES384 does not match it. A signature part that is not base64url is malformed
+        # even so, as in the JS verifier: the same assertion gets the same code from both libraries.
+        case = json.loads((DIR / "cases" / "good.json").read_text())
+        step = case["steps"][0]
+        parts = step["assertion"].split(".")
+        header = json.loads(b64(parts[0]))
+        mismatched = base64.urlsafe_b64encode(json.dumps(dict(header, alg="ES384")).encode()).rstrip(b"=").decode()
+        for signature, want in (("A", "malformed"), (parts[2], "signature")):
+            with self.subTest(signature=signature):
+                h = Harness(case)
+                _, code = h.verify(dict(step, assertion=f"{mismatched}.{parts[1]}.{signature}"))
+                self.assertEqual(code, want)
 
     def test_a_segment_with_a_trailing_newline_is_malformed(self) -> None:
         # "AAAA\n" is one the lenient decoder would decode (it drops the newline), so only the alphabet check refuses it.
