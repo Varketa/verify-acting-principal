@@ -106,12 +106,12 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _default_fetch(url: str) -> FetchedDocument:
-    """Fetch one discovery document: no redirect, at most 64 KiB, and the whole fetch within 10 s (SPEC §2.5).
+    """Fetch one discovery document: no redirect, at most 64 KiB, with a 10 s caller deadline (SPEC §2.5).
 
     urllib's own timeout bounds each socket operation, not the fetch, so an answer that arrives a few bytes at a time
-    would never end. The fetch therefore runs in a worker thread that the caller waits on for the remaining time; the
-    worker also checks the same deadline between reads, so it ends soon after (within one more socket timeout). The
-    opener is urllib's own, so its proxy handling is kept.
+    would never end. The caller waits on a daemon worker for the remaining deadline and raises if it is still alive.
+    The worker is not cancelled; it also checks this deadline between reads. Its completion depends on lower-layer
+    open/read/response-close operations returning. urllib's normal proxy handling is kept.
     """
     if not url.startswith("https://"):
         raise ValueError(f"{url}: not an https URL")
@@ -135,7 +135,7 @@ def _default_fetch(url: str) -> FetchedDocument:
 
 
 def _fetch_until(url: str, deadline: float) -> FetchedDocument:
-    """The worker's half of _default_fetch: open and read, giving up at the deadline."""
+    """The worker's half of _default_fetch: check the deadline before opening and before each read."""
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise TimeoutError(f"{url}: no time left to fetch")
