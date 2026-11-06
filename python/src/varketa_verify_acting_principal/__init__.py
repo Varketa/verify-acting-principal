@@ -218,9 +218,9 @@ class Verifier:
                     or parsed.password is not None or f"https://{parsed.netloc}" != value \
                     or any(c.isspace() or c == "\\" for c in value):
                 raise ValueError(f"verify-acting-principal: {name} must be an https:// origin")
-            # Accessing port also refuses invalid or out-of-range ports at construction. The value must be the origin
-            # as the JS verifier's URL parser spells it: an ASCII, lowercase host and no empty or default port, or the
-            # aud Varketa signs never matches it.
+            # Accessing port also refuses invalid or out-of-range ports at construction. Compare the
+            # input with an ASCII hostname and optional non-default port reconstructed from urlsplit.
+            # This is not the JavaScript URL parser's host canonicalization; accepted spellings can differ.
             host, port = parsed.hostname, parsed.port
             canonical = ("https://" + (f"[{host}]" if ":" in host else host)
                          + (f":{port}" if port not in (None, 443) else ""))
