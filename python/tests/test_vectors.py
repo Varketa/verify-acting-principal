@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import threading
 import unittest
 from pathlib import Path
@@ -242,6 +243,42 @@ class Vectors(unittest.TestCase):
         self.assertEqual(_resigned(lambda c: c.update(exp=2**60))[1], "expired")
         self.assertEqual(_resigned(lambda c: c.update(exp=float(2**60)))[1], "expired")
 
+    def test_nan_and_infinity_are_not_json(self) -> None:
+        # As in the JavaScript verifier, whose JSON.parse refuses them: a document carrying one is malformed, in the
+        # claims and in the unsigned header alike.
+        for literal in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(literal=literal):
+                self.assertEqual(_resigned_text(lambda t: t[:-1] + ', "extra": ' + literal + "}")[1], "malformed")
+                head = base64.urlsafe_b64encode(('{"typ":"varketa-acting-principal+jwt","alg":"EdDSA","kid":"k",'
+                                                 '"extra":' + literal + "}").encode()).rstrip(b"=").decode()
+                self.assertEqual(Harness({"fetches": {}}).verify({"now": 0, "request": {"method": "GET",
+                    "url": "https://x", "body_b64url": ""}, "assertion": f"{head}.e30.AAAA"})[1], "malformed")
+
+    def test_an_integer_too_long_for_any_number_is_absent_not_malformed(self) -> None:
+        # As in the JavaScript verifier, which reads a 5000-digit integer as Infinity: an unread member carrying one
+        # leaves the assertion accepted, and exp carrying one is absent, so the refusal is expired. int() alone would
+        # refuse the whole document past CPython's integer-string limit.
+        huge = "1" + "0" * 4999
+        self.assertEqual(_resigned_text(lambda t: t[:-1] + ', "extra": ' + huge + "}")[1], "")
+        self.assertEqual(_resigned_text(lambda t: t[:-1] + ', "extra": -' + huge + "}")[1], "")
+        self.assertEqual(_resigned_text(lambda t: re.sub(r'"exp": [0-9]+', '"exp": ' + huge, t))[1], "expired")
+
+    def test_a_published_key_whose_coordinate_is_not_the_curves_size_is_a_signature_failure(self) -> None:
+        # As in the JavaScript verifier: a coordinate that is padded, or one byte long or short, is no key.
+        def longer(jwk):
+            jwk["x"] = base64.urlsafe_b64encode(b"\x00" + b64(jwk["x"])).rstrip(b"=").decode()
+
+        def shorter(jwk):
+            jwk["x"] = base64.urlsafe_b64encode(b64(jwk["x"])[1:]).rstrip(b"=").decode()
+
+        def padded(jwk):
+            jwk["x"] += "="
+
+        for name, change in (("longer", longer), ("shorter", shorter), ("padded", padded)):
+            with self.subTest(coordinate=name):
+                self.assertEqual(_resigned_text(None, change)[1], "signature")
+        self.assertEqual(_resigned_text(None)[1], "")
+
     def test_max_age_past_int_digit_limit_is_the_cap(self) -> None:
         from varketa_verify_acting_principal import _max_age
         for header, want in (("max-age=" + "9" * 5000, 300), ("max-age=" + "0" * 5000 + "5", 5), ("max-age=0", 0),
@@ -382,7 +419,14 @@ def _resign_both(first, second):
     return case.verify(dict(step, assertion=sign(first)))[1], case.verify(dict(step, assertion=sign(second)))[1]
 
 
-def _signing_harness():
+def _resigned_text(rewrite, jwk_change=None):
+    """good's first step signed again with its claims' JSON text rewritten by rewrite, so a test can present a literal
+    json.dumps does not write; jwk_change edits the published key first."""
+    case, step, sign = _signing_harness(jwk_change)
+    return case.verify(dict(step, assertion=sign(lambda c: None, rewrite)))
+
+
+def _signing_harness(jwk_change=None):
     case = json.loads((DIR / "cases" / "good.json").read_text())
     step = case["steps"][0]
     key = Ed25519PrivateKey.generate()
@@ -390,15 +434,19 @@ def _signing_harness():
     def enc(raw):
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
-    def sign(change):
+    def sign(change, rewrite=None):
         claims = json.loads(b64(step["assertion"].split(".")[1]))
         change(claims)
+        text = json.dumps(claims)
         head = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "test"}).encode())
-        body = enc(json.dumps(claims).encode())
+        body = enc((rewrite(text) if rewrite else text).encode())
         return f"{head}.{body}.{enc(key.sign(f'{head}.{body}'.encode()))}"
 
-    case["fetches"][JWKS][0]["body"]["keys"] = [{"kid": "test", "kty": "OKP", "crv": "Ed25519",
-        "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]
+    jwk = {"kid": "test", "kty": "OKP", "crv": "Ed25519",
+           "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}
+    if jwk_change:
+        jwk_change(jwk)
+    case["fetches"][JWKS][0]["body"]["keys"] = [jwk]
     return Harness(case), step, sign
 
 if __name__ == "__main__":

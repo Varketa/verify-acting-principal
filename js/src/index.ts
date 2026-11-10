@@ -5,10 +5,11 @@ import { createHash, createPublicKey, verify as verifySignature, type KeyObject 
 export const HEADER = "Varketa-Acting-Principal";
 export const TYP = "varketa-acting-principal+jwt";
 export const SUPPORTED_VERSIONS: readonly number[] = [3, 4, 5];
-const ALGORITHMS: Record<string, { hash: string | null; kty: string; crv: string }> = {
-  ES256: { hash: "sha256", kty: "EC", crv: "P-256" },
-  ES384: { hash: "sha384", kty: "EC", crv: "P-384" },
-  EdDSA: { hash: null, kty: "OKP", crv: "Ed25519" },
+// `size` is the byte length of each public coordinate (EC: x and y; Ed25519: x alone).
+const ALGORITHMS: Record<string, { hash: string | null; kty: string; crv: string; size: number }> = {
+  ES256: { hash: "sha256", kty: "EC", crv: "P-256", size: 32 },
+  ES384: { hash: "sha384", kty: "EC", crv: "P-384", size: 48 },
+  EdDSA: { hash: null, kty: "OKP", crv: "Ed25519", size: 32 },
 };
 const SKEW = 60;
 const MAX_LIFETIME = 120;
@@ -235,6 +236,12 @@ export class Verifier {
     let key: KeyObject;
     try {
       if (jwk.kty !== alg.kty || jwk.crv !== alg.crv || (jwk.alg !== undefined && jwk.alg !== header.alg)) throw new Error();
+      // Each coordinate is this file's own base64url of exactly the curve's size, as the Python verifier holds it:
+      // createPublicKey alone takes a padded or over-long coordinate, so the two libraries judged one key differently.
+      for (const name of alg.kty === "EC" ? ["x", "y"] : ["x"]) {
+        const coordinate = jwk[name];
+        if (typeof coordinate !== "string" || b64url(coordinate).length !== alg.size) throw new Error();
+      }
       key = createPublicKey({ key: jwk as never, format: "jwk" });
     } catch {
       throw new VerificationError("signature");

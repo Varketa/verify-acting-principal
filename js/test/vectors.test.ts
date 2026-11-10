@@ -261,7 +261,12 @@ function signer(kid: string) {
   return {
     jwk: { ...publicKey.export({ format: "jwk" }), kid },
     sign(claims: unknown): string {
-      const signingInput = `${enc({ typ: "varketa-acting-principal+jwt", alg: "EdDSA", kid })}.${enc(claims)}`;
+      return this.signText(JSON.stringify(claims));
+    },
+    // An assertion whose claims are this JSON text as written, so a test can present a literal JSON.stringify does
+    // not write.
+    signText(claims: string): string {
+      const signingInput = `${enc({ typ: "varketa-acting-principal+jwt", alg: "EdDSA", kid })}.${Buffer.from(claims).toString("base64url")}`;
       return `${signingInput}.${sign(null, Buffer.from(signingInput), privateKey).toString("base64url")}`;
     },
   };
@@ -285,6 +290,63 @@ async function resigned(change: (claims: Record<string, unknown>) => void): Prom
     return { code: e.code };
   }
 }
+
+// good's first step signed again with its claims' JSON text rewritten by rewrite; jwkChange edits the published key first.
+async function resignedText(rewrite: (text: string) => string, jwkChange?: (jwk: Record<string, unknown>) => void): Promise<string> {
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const k = signer("test");
+  const jwk = { ...k.jwk } as Record<string, unknown>;
+  jwkChange?.(jwk);
+  (c.fetches[jwksUrl][0].body as { keys: unknown[] }).keys = [jwk];
+  const h = harness(c);
+  h.setNow(s.now);
+  const text = JSON.stringify(JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8")));
+  try {
+    await h.v.verify({ method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: k.signText(rewrite(text)) });
+    return "";
+  } catch (e) {
+    if (!(e instanceof VerificationError)) throw e;
+    return e.code;
+  }
+}
+
+test("NaN and Infinity are not JSON", async () => {
+  // As in the Python verifier, whose json.loads would take them: a document carrying one is malformed, in the claims
+  // and in the unsigned header alike.
+  for (const literal of ["NaN", "Infinity", "-Infinity"]) {
+    assert.equal(await resignedText((t) => `${t.slice(0, -1)},"extra":${literal}}`), "malformed", literal);
+    const head = Buffer.from(`{"typ":"varketa-acting-principal+jwt","alg":"EdDSA","kid":"k","extra":${literal}}`).toString("base64url");
+    const c: Case = JSON.parse(readFileSync(join(dir, "cases", "absent.json"), "utf8"));
+    await assert.rejects(harness(c).v.verify({ method: "GET", url: "https://x", body: "", assertion: `${head}.e30.AAAA` }),
+      (e) => e instanceof VerificationError && e.code === "malformed", literal);
+  }
+});
+
+test("an integer too long for any number is absent, not malformed", async () => {
+  // As in the Python verifier: a 5000-digit integer is Infinity here, so an unread member carrying one leaves the
+  // assertion accepted, and exp carrying one is absent, so the refusal is expired.
+  const huge = `1${"0".repeat(4999)}`;
+  assert.equal(await resignedText((t) => `${t.slice(0, -1)},"extra":${huge}}`), "");
+  assert.equal(await resignedText((t) => `${t.slice(0, -1)},"extra":-${huge}}`), "");
+  assert.equal(await resignedText((t) => t.replace(/"exp":[0-9]+/, `"exp":${huge}`)), "expired");
+});
+
+test("a published key whose coordinate is not the curve's size is a signature failure", async () => {
+  // As in the Python verifier: a coordinate that is padded, or one byte long or short, is no key. createPublicKey
+  // alone takes some of these.
+  const raw = (jwk: Record<string, unknown>) => Buffer.from(jwk.x as string, "base64url");
+  const changes: Record<string, (jwk: Record<string, unknown>) => void> = {
+    longer: (jwk) => { jwk.x = Buffer.concat([Buffer.from([0]), raw(jwk)]).toString("base64url"); },
+    shorter: (jwk) => { jwk.x = raw(jwk).subarray(1).toString("base64url"); },
+    padded: (jwk) => { jwk.x = `${jwk.x as string}=`; },
+    "not a string": (jwk) => { jwk.x = 7; },
+  };
+  for (const [name, change] of Object.entries(changes)) {
+    assert.equal(await resignedText((t) => t, change), "signature", name);
+  }
+  assert.equal(await resignedText((t) => t), "");
+});
 
 test("a present sub_id is exactly iss_sub", async () => {
   // Shapes no vector carries: a fourth member, null, an array, a non-string subject. And one sub_id on ver 3, which is
