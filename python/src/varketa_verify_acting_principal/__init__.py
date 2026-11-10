@@ -9,6 +9,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -154,7 +155,8 @@ def _fetch_until(url: str, deadline: float) -> FetchedDocument:
             size += len(chunk)
             if size > _MAX_DOCUMENT_BYTES:
                 raise ValueError(f"{url}: document over {_MAX_DOCUMENT_BYTES} bytes")
-        return FetchedDocument(r.status, r.headers.get("Cache-Control"), b"".join(chunks))
+        # Every Cache-Control header, joined as the JavaScript verifier's fetch joins them: get() alone answers the first.
+        return FetchedDocument(r.status, ", ".join(r.headers.get_all("Cache-Control") or []) or None, b"".join(chunks))
 
 
 def _max_age(cache_control: Optional[str]) -> int:
@@ -178,9 +180,23 @@ def _b64url(s: str) -> bytes:
         raise VerificationError("malformed") from e
 
 
+def _no_constant(literal: str) -> Any:
+    # NaN, Infinity and -Infinity are not JSON (RFC 8259 §6), and the JavaScript verifier's JSON.parse refuses them.
+    raise ValueError(f"{literal} is not JSON")
+
+
+def _integer(literal: str) -> Any:
+    # A JSON integer as the JavaScript verifier reads one that long: past 400 digits it is over every float64, which
+    # JSON.parse reads as Infinity, a number no check here counts (not a safe integer), so the member is absent. int()
+    # would instead refuse the whole document past CPython's integer-string limit (4300 digits by default).
+    if len(literal) > 400:
+        return -math.inf if literal.startswith("-") else math.inf
+    return int(literal)
+
+
 def _object(b: bytes) -> dict[str, Any]:
     try:
-        v = json.loads(b.decode("utf-8"))
+        v = json.loads(b.decode("utf-8"), parse_constant=_no_constant, parse_int=_integer)
     except (ValueError, UnicodeDecodeError, RecursionError) as e:
         # RecursionError: JSON nested past the interpreter's limit, which an unsigned header can be.
         raise VerificationError("malformed") from e

@@ -1,7 +1,9 @@
 import base64
 import json
+import re
 import threading
 import unittest
+from email.message import Message
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -242,6 +244,90 @@ class Vectors(unittest.TestCase):
         self.assertEqual(_resigned(lambda c: c.update(exp=2**60))[1], "expired")
         self.assertEqual(_resigned(lambda c: c.update(exp=float(2**60)))[1], "expired")
 
+    def test_nan_and_infinity_are_not_json(self) -> None:
+        # As in the JavaScript verifier, whose JSON.parse refuses them: a document carrying one is malformed, in the
+        # claims and in the unsigned header alike.
+        for literal in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(literal=literal):
+                self.assertEqual(_resigned_text(lambda t: t[:-1] + ', "extra": ' + literal + "}")[1], "malformed")
+                head = base64.urlsafe_b64encode(('{"typ":"varketa-acting-principal+jwt","alg":"EdDSA","kid":"k",'
+                                                 '"extra":' + literal + "}").encode()).rstrip(b"=").decode()
+                self.assertEqual(Harness({"fetches": {}}).verify({"now": 0, "request": {"method": "GET",
+                    "url": "https://x", "body_b64url": ""}, "assertion": f"{head}.e30.AAAA"})[1], "malformed")
+
+    def test_an_integer_too_long_for_any_number_is_absent_not_malformed(self) -> None:
+        # As in the JavaScript verifier, which reads a 5000-digit integer as Infinity: an unread member carrying one
+        # leaves the assertion accepted, and exp carrying one is absent, so the refusal is expired. int() alone would
+        # refuse the whole document past CPython's integer-string limit.
+        huge = "1" + "0" * 4999
+        self.assertEqual(_resigned_text(lambda t: t[:-1] + ', "extra": ' + huge + "}")[1], "")
+        self.assertEqual(_resigned_text(lambda t: t[:-1] + ', "extra": -' + huge + "}")[1], "")
+        self.assertEqual(_resigned_text(lambda t: re.sub(r'"exp": [0-9]+', '"exp": ' + huge, t))[1], "expired")
+
+    def test_a_published_key_whose_coordinate_is_not_the_curves_size_is_a_signature_failure(self) -> None:
+        # As in the JavaScript verifier: a coordinate that is padded, or one byte long or short, is no key.
+        def longer(jwk):
+            jwk["x"] = base64.urlsafe_b64encode(b"\x00" + b64(jwk["x"])).rstrip(b"=").decode()
+
+        def shorter(jwk):
+            jwk["x"] = base64.urlsafe_b64encode(b64(jwk["x"])[1:]).rstrip(b"=").decode()
+
+        def padded(jwk):
+            jwk["x"] += "="
+
+        for name, change in (("longer", longer), ("shorter", shorter), ("padded", padded)):
+            with self.subTest(coordinate=name):
+                self.assertEqual(_resigned_text(None, change)[1], "signature")
+        self.assertEqual(_resigned_text(None)[1], "")
+
+    def test_an_ec_keys_coordinates_are_each_the_curves_size(self) -> None:
+        # The same rule on a P-256 key, whose x and y are each 32 bytes: a leading zero byte leaves the number unchanged
+        # and a padded one is the same bytes, so only the size and alphabet checks refuse them.
+        for member in ("x", "y"):
+            for name, change in (("longer", lambda v: base64.urlsafe_b64encode(b"\x00" + b64(v)).rstrip(b"=").decode()),
+                                 ("padded", lambda v: v + "=")):
+                with self.subTest(member=member, coordinate=name):
+                    self.assertEqual(_ec_signed(lambda jwk: jwk.update({member: change(jwk[member])})), "signature")
+        self.assertEqual(_ec_signed(lambda jwk: None), "")
+
+    def test_the_default_fetch_reads_every_cache_control_header(self) -> None:
+        # As the JavaScript verifier's fetch joins repeated headers: "no-cache" then "max-age=120" is 120 s, where the
+        # first header alone would be 0.
+        import urllib.request
+        from varketa_verify_acting_principal import _default_fetch, _max_age
+
+        headers = Message()
+        headers["Cache-Control"] = "no-cache"
+        headers["Cache-Control"] = "max-age=120"
+
+        class Answer:
+            status = 200
+
+            def __init__(self):
+                self.headers, self._left = headers, [b"{}"]
+
+            def read1(self, _n):
+                return self._left.pop() if self._left else b""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        class Opener:
+            def open(self, *_a, **_k):
+                return Answer()
+
+        original = urllib.request.build_opener
+        urllib.request.build_opener = lambda *_a: Opener()
+        try:
+            doc = _default_fetch("https://issuer.example/doc")
+        finally:
+            urllib.request.build_opener = original
+        self.assertEqual(doc.cache_control, "no-cache, max-age=120")
+        self.assertEqual(_max_age(doc.cache_control), 120)
+
     def test_max_age_past_int_digit_limit_is_the_cap(self) -> None:
         from varketa_verify_acting_principal import _max_age
         for header, want in (("max-age=" + "9" * 5000, 300), ("max-age=" + "0" * 5000 + "5", 5), ("max-age=0", 0),
@@ -262,7 +348,9 @@ class Vectors(unittest.TestCase):
 
         class Answer:
             def __init__(self, chunks, delay):
-                self.chunks, self.delay, self.status, self.headers = chunks, delay, 200, {"Cache-Control": "max-age=60"}
+                # A message, as http.client's answer carries: the fetch reads every Cache-Control header (get_all).
+                self.chunks, self.delay, self.status, self.headers = chunks, delay, 200, Message()
+                self.headers["Cache-Control"] = "max-age=60"
 
             def __enter__(self):
                 return self
@@ -382,7 +470,40 @@ def _resign_both(first, second):
     return case.verify(dict(step, assertion=sign(first)))[1], case.verify(dict(step, assertion=sign(second)))[1]
 
 
-def _signing_harness():
+def _resigned_text(rewrite, jwk_change=None):
+    """good's first step signed again with its claims' JSON text rewritten by rewrite, so a test can present a literal
+    json.dumps does not write; jwk_change edits the published key first."""
+    case, step, sign = _signing_harness(jwk_change)
+    return case.verify(dict(step, assertion=sign(lambda c: None, rewrite)))
+
+
+def _ec_signed(jwk_change):
+    """good's first step signed again under a throwaway P-256 key (ES256), its published JWK edited by jwk_change; the
+    refusal code."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+    case = json.loads((DIR / "cases" / "good.json").read_text())
+    step = case["steps"][0]
+    key = ec.generate_private_key(ec.SECP256R1())
+
+    def enc(raw):
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    numbers = key.public_key().public_numbers()
+    jwk = {"kid": "test-ec", "kty": "EC", "crv": "P-256", "x": enc(numbers.x.to_bytes(32, "big")),
+           "y": enc(numbers.y.to_bytes(32, "big"))}
+    jwk_change(jwk)
+    case["fetches"][JWKS][0]["body"]["keys"] = [jwk]
+    head = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "ES256", "kid": "test-ec"}).encode())
+    body = step["assertion"].split(".")[1]
+    r, s = decode_dss_signature(key.sign(f"{head}.{body}".encode(), ec.ECDSA(hashes.SHA256())))
+    signature = enc(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+    return Harness(case).verify(dict(step, assertion=f"{head}.{body}.{signature}"))[1]
+
+
+def _signing_harness(jwk_change=None):
     case = json.loads((DIR / "cases" / "good.json").read_text())
     step = case["steps"][0]
     key = Ed25519PrivateKey.generate()
@@ -390,15 +511,19 @@ def _signing_harness():
     def enc(raw):
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
-    def sign(change):
+    def sign(change, rewrite=None):
         claims = json.loads(b64(step["assertion"].split(".")[1]))
         change(claims)
+        text = json.dumps(claims)
         head = enc(json.dumps({"typ": "varketa-acting-principal+jwt", "alg": "EdDSA", "kid": "test"}).encode())
-        body = enc(json.dumps(claims).encode())
+        body = enc((rewrite(text) if rewrite else text).encode())
         return f"{head}.{body}.{enc(key.sign(f'{head}.{body}'.encode()))}"
 
-    case["fetches"][JWKS][0]["body"]["keys"] = [{"kid": "test", "kty": "OKP", "crv": "Ed25519",
-        "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]
+    jwk = {"kid": "test", "kty": "OKP", "crv": "Ed25519",
+           "x": enc(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}
+    if jwk_change:
+        jwk_change(jwk)
+    case["fetches"][JWKS][0]["body"]["keys"] = [jwk]
     return Harness(case), step, sign
 
 if __name__ == "__main__":
