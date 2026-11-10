@@ -155,7 +155,8 @@ def _fetch_until(url: str, deadline: float) -> FetchedDocument:
             size += len(chunk)
             if size > _MAX_DOCUMENT_BYTES:
                 raise ValueError(f"{url}: document over {_MAX_DOCUMENT_BYTES} bytes")
-        return FetchedDocument(r.status, r.headers.get("Cache-Control"), b"".join(chunks))
+        # Every Cache-Control header, joined as the JavaScript verifier's fetch joins them: get() alone answers the first.
+        return FetchedDocument(r.status, ", ".join(r.headers.get_all("Cache-Control") or []) or None, b"".join(chunks))
 
 
 def _max_age(cache_control: Optional[str]) -> int:

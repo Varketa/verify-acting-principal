@@ -348,6 +348,39 @@ test("a published key whose coordinate is not the curve's size is a signature fa
   assert.equal(await resignedText((t) => t), "");
 });
 
+test("an EC key's coordinates are each the curve's size", async () => {
+  // The same rule on a P-256 key, whose x and y are each 32 bytes: a leading zero byte leaves the number unchanged and
+  // a padded one is the same bytes, so only this file's size and alphabet checks refuse them.
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const head = Buffer.from(JSON.stringify({ typ: "varketa-acting-principal+jwt", alg: "ES256", kid: "test-ec" })).toString("base64url");
+  const signingInput = `${head}.${s.assertion.split(".")[1]}`;
+  const assertion = `${signingInput}.${sign("sha256", Buffer.from(signingInput), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url")}`;
+  const verifyWith = async (change: (jwk: Record<string, unknown>) => void): Promise<string> => {
+    const jwk = { ...publicKey.export({ format: "jwk" }), kid: "test-ec" } as Record<string, unknown>;
+    change(jwk);
+    const copy: Case = JSON.parse(JSON.stringify(c));
+    (copy.fetches[jwksUrl][0].body as { keys: unknown[] }).keys = [jwk];
+    const h = harness(copy);
+    h.setNow(s.now);
+    try {
+      await h.v.verify({ method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion });
+      return "";
+    } catch (e) {
+      if (!(e instanceof VerificationError)) throw e;
+      return e.code;
+    }
+  };
+  for (const member of ["x", "y"]) {
+    const longer = (jwk: Record<string, unknown>) => { jwk[member] = Buffer.concat([Buffer.from([0]), Buffer.from(jwk[member] as string, "base64url")]).toString("base64url"); };
+    const padded = (jwk: Record<string, unknown>) => { jwk[member] = `${jwk[member] as string}=`; };
+    assert.equal(await verifyWith(longer), "signature", `${member} longer`);
+    assert.equal(await verifyWith(padded), "signature", `${member} padded`);
+  }
+  assert.equal(await verifyWith(() => {}), "");
+});
+
 test("a present sub_id is exactly iss_sub", async () => {
   // Shapes no vector carries: a fourth member, null, an array, a non-string subject. And one sub_id on ver 3, which is
   // judged as on ver 4.
