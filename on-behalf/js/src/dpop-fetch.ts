@@ -43,9 +43,15 @@ export async function credentialBoundFetch(o: {
   let own: McpCredential | null = null;
   if (o.fresh) own = await o.source.credentialFor(customer, { fresh: true });
   else await o.source.credentialFor(customer);
-  const credential = async () => {
+  // One re-mint at a time: concurrent requests after an expiry or a refusal share it.
+  let minting: Promise<McpCredential> | null = null;
+  const credential = async (): Promise<McpCredential> => {
     if (!o.fresh) return o.source.credentialFor(customer);
-    if (own === null || !o.source.live(own)) own = await o.source.credentialFor(customer, { fresh: true });
+    if (own !== null && o.source.live(own)) return own;
+    minting ??= o.source.credentialFor(customer, { fresh: true }).finally(() => {
+      minting = null;
+    });
+    own = await minting;
     return own;
   };
 

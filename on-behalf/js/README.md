@@ -57,16 +57,17 @@ onBehalf.forget({ key: session.sid });
   door token for up to five minutes.
 - **`subjectToken`**: the signed-in customer's fresh IdP token, minted server-side. The kit calls it once per attempt
   and never caches it.
-- **`forget(c)`** when the customer signs out.
+- **`forget(c)`** when the customer signs out. It also ends any credential a mint in flight returns, and any fetch's
+  own fresh credential: none of them is cached or used again.
 - **`jwks()`** served at your backend issuer's key URL. Pass `previousKeys` to keep serving a rotated-out key.
 
 ## Fresh credentials
 
 `credentialFor(c, { fresh: true })` and `fetchFor(c, { fresh: true })` mint all three hops anew, hop 1 included,
 without reading the cache. The result replaces the cached hop 1 and this customer's cached credential, as the newer
-one. A fresh fetch keeps the credential it minted. When that credential expires mid-session, or the door refuses it
-with a 401, the fetch mints another fresh one for the next request, with a fresh subject token. Without `fresh`, the
-cache is used.
+one. A fresh fetch keeps the credential it minted. When that credential expires mid-session, the door refuses it
+with a 401, or the customer signs out, the fetch mints another fresh one for the next request, with a fresh subject
+token; concurrent requests share that one mint. Without `fresh`, the cache is used.
 
 ## Retries
 

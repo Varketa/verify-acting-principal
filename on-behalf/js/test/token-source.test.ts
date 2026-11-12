@@ -75,10 +75,12 @@ test("eviction is by insertion order at maxCached, and a read does not move an e
 
 test("expired entries are swept before a live one is evicted", async () => {
   const { kit, fake, advance } = setup({ maxCached: 2 });
+  // sess_b, the earliest inserted, is live; sess_a, inserted after it, has expired. Without the sweep, insertion
+  // order would evict sess_b.
+  const b = await kit.credentialFor(B);
   fake.ttl.door = 60; // sess_a's lasts one minute
   await kit.credentialFor(A);
   fake.ttl.door = 300;
-  const b = await kit.credentialFor(B);
   advance(60_000);
   await kit.credentialFor({ key: "sess_c" });
   fake.log.length = 0;
@@ -248,6 +250,30 @@ test("the settled disposition rows", () => {
   assert.deepEqual(classify(new Error("connect ECONNRESET")), keep);
   assert.equal(new OnBehalfError("door", 401, "invalid_token").reason, "unavailable");
 });
+
+test("a sign-out during a fresh mint leaves it uncached", async () => {
+  const { kit, fake } = setup();
+  const pending = kit.credentialFor(A, { fresh: true });
+  kit.forget(A); // sign-out while the fresh mint is in flight
+  const a = await pending;
+  fake.log.length = 0;
+  assert.notEqual((await kit.credentialFor(A)).accessToken, a.accessToken, "it was not cached");
+  assert.deepEqual(fake.log, ["subject:sess_a", "as:customer", "as:door_token"]);
+  fake.done();
+});
+
+for (const expires_in of [0, -1]) {
+  test(`a grant answer with expires_in ${expires_in} is refused, not cached`, async () => {
+    const { kit, fake } = setup();
+    fake.ttl.door = expires_in;
+    await assert.rejects(kit.credentialFor(A), (e: unknown) => e instanceof OnBehalfError && e.step === "door_token");
+    fake.ttl.door = 300;
+    fake.log.length = 0;
+    await kit.credentialFor(A);
+    assert.deepEqual(hops(fake.log), ["subject:sess_a", "as:customer", "as:door_token"]);
+    fake.done();
+  });
+}
 
 test("a lifetime longer than five minutes is not believed", async () => {
   const { kit, fake, advance } = setup();

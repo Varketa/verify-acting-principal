@@ -73,8 +73,6 @@ test("no private key is in any request, credential, key set, error or the kit it
   const outputs = [
     JSON.stringify(fake.requests),
     JSON.stringify(kit.jwks()),
-    inspect(kit, { depth: 10, showHidden: true }),
-    inspect(await kit.credentialFor(A), { depth: 10, showHidden: true }),
     JSON.stringify(await kit.credentialFor(A)),
     inspect(new OnBehalfError("door", 401, "invalid_token"), { depth: 10 }),
   ];

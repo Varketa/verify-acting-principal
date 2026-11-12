@@ -57,9 +57,13 @@ export class OnBehalfTokenSource {
   #nonce: string | undefined;
   // In insertion order: the first key is the earliest inserted.
   readonly #customers = new Map<string, Timed>();
-  readonly #inFlight = new Map<string, Promise<Timed>>();
-  // Each credential handed out, with its lifetime, so a holder can ask whether it is still live.
-  readonly #issued = new WeakMap<McpCredential, Timed>();
+  // Each mint in flight, with the customer's sign-out count when it started.
+  readonly #inFlight = new Map<string, { p: Promise<Timed>; signOuts: number }>();
+  // Each credential handed out, with its lifetime and its customer's sign-out count, so a holder can ask whether
+  // it is still live.
+  readonly #issued = new WeakMap<McpCredential, { t: Timed; key: string; signOuts: number }>();
+  // How many times each customer was forgotten at sign-out: a mint that started before one is never cached.
+  readonly #signOuts = new Map<string, number>();
 
   constructor(o: {
     varketaOrigin: string;
@@ -120,6 +124,8 @@ export class OnBehalfTokenSource {
       res.status !== 200 ||
       typeof body?.access_token !== "string" ||
       typeof body.expires_in !== "number" ||
+      !Number.isFinite(body.expires_in) ||
+      body.expires_in <= 0 ||
       typeof body.token_type !== "string" ||
       body.token_type.toLowerCase() !== "dpop"
     ) {
@@ -217,8 +223,13 @@ export class OnBehalfTokenSource {
     this.#customers.set(key, t);
   }
 
-  #credential(t: Timed): McpCredential {
-    const key = this.#key;
+  #signOutCount(key: string): number {
+    return this.#signOuts.get(key) ?? 0;
+  }
+
+  /** `signOuts`: the customer's sign-out count when `t` was minted; a sign-out since then makes it not live. */
+  #credential(key: string, t: Timed, signOuts: number): McpCredential {
+    const dpop = this.#key;
     const resource = new URL(this.#resource).href;
     const accessToken = t.token;
     const cred: McpCredential = Object.freeze({
@@ -226,51 +237,56 @@ export class OnBehalfTokenSource {
       proof(method: string, url: string, o: { nonce?: string } = {}): string {
         if (new URL(url).href !== resource) throw new Error("a door proof is made for the configured mcpResource only");
         const nonce = o.nonce !== undefined ? { nonce: o.nonce } : {};
-        return key.proof(method.toUpperCase(), url, { accessToken, ...nonce });
+        return dpop.proof(method.toUpperCase(), url, { accessToken, ...nonce });
       },
     });
-    this.#issued.set(cred, t);
+    this.#issued.set(cred, { t, key, signOuts });
     return cred;
   }
 
-  /** Whether `cred` still has more than the margin of its life left. */
+  /** Whether `cred` still has more than the margin of its life left, and its customer has not signed out since. */
   live(cred: McpCredential): boolean {
-    return this.#live(this.#issued.get(cred));
+    const i = this.#issued.get(cred);
+    return i !== undefined && i.signOuts === this.#signOutCount(i.key) && this.#live(i.t);
   }
 
   async credentialFor(c: CustomerRef, o: { fresh?: boolean } = {}): Promise<McpCredential> {
     const key = c.key;
     if (typeof key !== "string" || key === "") throw new Error("CustomerRef.key must be a non-empty string");
     // A fresh credential mints all three hops without reading the cache, then replaces this customer's cached
-    // entry as the newer credential. A mint already in flight for the key is then left uncached.
+    // entry as the newer credential. A mint already in flight for the key is then left uncached, and a sign-out
+    // during the mint leaves this one uncached.
     if (o.fresh === true) {
+      const signOuts = this.#signOutCount(key);
       const t = await this.#mint({ key }, true);
-      this.#inFlight.delete(key);
-      this.#remember(key, t);
-      return this.#credential(t);
+      if (this.#signOutCount(key) === signOuts) {
+        this.#inFlight.delete(key);
+        this.#remember(key, t);
+      }
+      return this.#credential(key, t, signOuts);
     }
     const cached = this.#customers.get(key);
-    if (this.#live(cached)) return this.#credential(cached);
+    if (this.#live(cached)) return this.#credential(key, cached, this.#signOutCount(key));
     let pending = this.#inFlight.get(key);
     if (pending === undefined) {
       const p: Promise<Timed> = this.#mint({ key }).then(
         (t) => {
           // A forget() while this was in flight leaves it uncached.
-          if (this.#inFlight.get(key) === p) {
+          if (this.#inFlight.get(key)?.p === p) {
             this.#inFlight.delete(key);
             this.#remember(key, t);
           }
           return t;
         },
         (e: unknown) => {
-          if (this.#inFlight.get(key) === p) this.#inFlight.delete(key);
+          if (this.#inFlight.get(key)?.p === p) this.#inFlight.delete(key);
           throw e;
         },
       );
-      this.#inFlight.set(key, p);
-      pending = p;
+      pending = { p, signOuts: this.#signOutCount(key) };
+      this.#inFlight.set(key, pending);
     }
-    return this.#credential(await pending);
+    return this.#credential(key, await pending.p, pending.signOuts);
   }
 
   /** With no cause, drops this customer's credential (sign-out). With a cause, drops it only when the cause says
@@ -282,6 +298,7 @@ export class OnBehalfTokenSource {
       if (refused !== undefined && this.#customers.get(c.key)?.token !== refused.accessToken) return;
     } else {
       this.#inFlight.delete(c.key);
+      this.#signOuts.set(c.key, this.#signOutCount(c.key) + 1);
     }
     this.#customers.delete(c.key);
   }

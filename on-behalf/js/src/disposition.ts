@@ -31,7 +31,9 @@ export function classify(e: unknown): Disposition {
     return { dropActor: true, dropCustomer: true, reason: "unavailable" };
   }
   // At the door only a 401 says the token was refused; a 403, a 429 or a tool's own error does not.
-  if (e.step === "door") return e.status === 401 ? CUSTOMER : NOTHING;
+  // A 401 that still asks for a nonce (a body that could not be resent, or a nonce that rotated again) refused the
+  // proof's freshness, not the token.
+  if (e.step === "door") return e.status === 401 && e.code !== "use_dpop_nonce" ? CUSTOMER : NOTHING;
   // Any other 4xx at hops 2 and 3 (hop 3's invalid_grant among them) drops the customer.
   if ((e.step === "customer" || e.step === "door_token") && e.status >= 400) return CUSTOMER;
   return NOTHING;

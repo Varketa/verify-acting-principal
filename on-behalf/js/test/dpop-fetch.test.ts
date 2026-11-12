@@ -90,6 +90,27 @@ test("the door's nonce challenge is answered once, and the nonce kept", async ()
   fake.done();
 });
 
+test("a nonce challenge the fetch cannot answer drops nothing", async () => {
+  const { kit, fake } = setup();
+  const f = await kit.fetchFor(A);
+  const challenge = {
+    status: 401,
+    headers: { "dpop-nonce": "n-1", "www-authenticate": 'DPoP error="use_dpop_nonce"' },
+  };
+  // A stream body cannot be sent twice, so the challenge comes back to the caller.
+  fake.once("door", challenge);
+  const body = new Blob(["{}"]).stream();
+  assert.equal((await f(MCP, { method: "POST", body, duplex: "half" } as RequestInit)).status, 401);
+  // A nonce that rotates again answers the retry with another challenge.
+  fake.once("door", challenge);
+  fake.once("door", { ...challenge, headers: { ...challenge.headers, "dpop-nonce": "n-2" } });
+  assert.equal((await f(MCP, rpc("tools/list"))).status, 401);
+  fake.log.length = 0;
+  assert.equal((await f(MCP, rpc("tools/list"))).status, 200);
+  assert.deepEqual(hops(fake.log), [], "the credential was kept");
+  fake.done();
+});
+
 test("a door 401 drops the customer's credential, and only that one", async () => {
   const { kit, fake } = setup();
   const other = await kit.credentialFor({ key: "sess_b" });
@@ -174,6 +195,40 @@ test("a fresh fetch's credential refused by the door is replaced on the next req
   fake.log.length = 0;
   assert.equal((await kit.credentialFor(A)).accessToken, now);
   assert.deepEqual(fake.log, []);
+  fake.done();
+});
+
+test("a sign-out during a fresh fetch's mint ends that credential", async () => {
+  const { kit, fake } = setup();
+  const pending = kit.fetchFor(A, { fresh: true });
+  kit.forget(A); // sign-out while the fetch's first fresh mint is in flight
+  const f = await pending;
+  fake.log.length = 0;
+  await f(MCP, rpc("tools/call"));
+  assert.deepEqual(hops(fake.log), ["as:backend", "subject:sess_a", "as:customer", "as:door_token"]);
+  fake.done();
+});
+
+test("concurrent requests on a fresh fetch share one re-mint", async () => {
+  const { kit, fake, advance } = setup();
+  const f = await kit.fetchFor(A, { fresh: true });
+  advance(5 * 60_000);
+  fake.log.length = 0;
+  await Promise.all([f(MCP, rpc("tools/call")), f(MCP, { method: "GET" }), f(MCP, rpc("tasks/get"))]);
+  assert.deepEqual(hops(fake.log), ["as:backend", "subject:sess_a", "as:customer", "as:door_token"]);
+  fake.done();
+});
+
+test("a sign-out ends a fresh fetch's own credential", async () => {
+  const { kit, fake } = setup();
+  const f = await kit.fetchFor(A, { fresh: true });
+  await f(MCP, rpc("tools/call"));
+  const first = fake.requests.at(-1)?.headers.authorization;
+  kit.forget(A);
+  fake.log.length = 0;
+  await f(MCP, rpc("tools/call"));
+  assert.deepEqual(hops(fake.log), ["as:backend", "subject:sess_a", "as:customer", "as:door_token"]);
+  assert.notEqual(fake.requests.at(-1)?.headers.authorization, first);
   fake.done();
 });
 
