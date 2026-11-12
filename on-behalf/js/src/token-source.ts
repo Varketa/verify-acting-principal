@@ -94,18 +94,26 @@ export class OnBehalfTokenSource {
     const send = async () => {
       const body = new URLSearchParams(await form()).toString();
       const nonce = this.#nonce;
-      const res = await this.#fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          dpop: this.#key.proof("POST", url, nonce !== undefined ? { nonce } : {}),
-        },
-        body,
-      });
+      let res: Awaited<ReturnType<HttpFetch>>;
+      let text: string;
+      try {
+        res = await this.#fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            dpop: this.#key.proof("POST", url, nonce !== undefined ? { nonce } : {}),
+          },
+          body,
+        });
+        text = await res.text();
+      } catch (e) {
+        // A network error or a timeout: no answer, status 0.
+        throw new OnBehalfError(step, 0, null, { what, cause: e });
+      }
       this.#nonce = res.headers.get("dpop-nonce") ?? this.#nonce;
       return {
         res,
-        body: parseJson(await res.text()) as {
+        body: parseJson(text) as {
           access_token?: unknown;
           token_type?: unknown;
           expires_in?: unknown;
@@ -141,11 +149,9 @@ export class OnBehalfTokenSource {
   #mintActor(): Promise<Timed> {
     return this.#grant(
       "/login/token-exchange",
-      // Varketa reads the assertion's times against its own clock, so they come from the wall clock, as the
-      // proofs' do; `now` only ages the cache.
       async () => ({
         grant_type: TOKEN_EXCHANGE,
-        subject_token: await this.#backend.assertion(Math.floor(Date.now() / 1000)),
+        subject_token: await this.#assertion(),
         subject_token_type: JWT,
       }),
       "Varketa's exchange (backend)",
@@ -165,6 +171,16 @@ export class OnBehalfTokenSource {
       this.#actorInFlight = null;
     });
     return this.#actorInFlight;
+  }
+
+  /** Varketa reads the assertion's times against its own clock, so they come from the wall clock, as the proofs'
+   * do; `now` only ages the cache. A signer that fails (a KMS outage) is step backend, status 0. */
+  async #assertion(): Promise<string> {
+    try {
+      return await this.#backend.assertion(Math.floor(Date.now() / 1000));
+    } catch (e) {
+      throw new OnBehalfError("backend", 0, null, { what: "the backend's signer", cause: e });
+    }
   }
 
   async #subjectToken(c: CustomerRef): Promise<string> {

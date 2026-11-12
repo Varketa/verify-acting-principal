@@ -4,6 +4,8 @@ Both packages are published by [.github/workflows/release.yml](.github/workflows
 on `main`. No person and no repository secret holds a publish token. npm and PyPI each trust that one workflow
 through OIDC (trusted publishing).
 
+The on-behalf client kit, `@varketa/mcp-on-behalf`, is released on its own: see the last section.
+
 ## Cutting a release
 
 1. In a pull request:
@@ -95,3 +97,15 @@ A failed job can be re-run. A re-run publishes nothing twice, and `read-back` ju
       ```
 
    That first version carries no npm provenance. Every later one does.
+
+## The on-behalf client kit
+
+`@varketa/mcp-on-behalf` (`on-behalf/`) has its own workflow, `.github/workflows/on-behalf-release.yml`, and its own
+tags, `v-on-behalf-X.Y.Z`; `release.yml` ignores them. Its steps mirror the ones above with the scripts in
+`on-behalf/release/`, and the `package` job of `.github/workflows/on-behalf-test.yml` is its dry run. Its preflight
+refuses a release while the fixture set `on-behalf/js/package.json` names is provisional.
+
+Before its first release, the owner adds an npm trusted publisher for `@varketa/mcp-on-behalf` naming workflow
+`on-behalf-release.yml` and environment `npm`, bootstrapping the first version by hand as in Owner setup step 5,
+from the run's `on-behalf-release-X.Y.Z` artifact. The tag ruleset and the `npm` environment's `v*` rule already
+cover its tags.

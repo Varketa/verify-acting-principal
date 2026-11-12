@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OnBehalfError, classify } from "../src/index.ts";
+import { BackendIdentity, OnBehalfError, classify, type EcJwk } from "../src/index.ts";
 import { clerkSubjectTokens } from "../src/clerk.ts";
 import { CLERK_API, type Answer, type Step } from "./fake/varketa.ts";
 import { hops, setup } from "./fake/setup.ts";
@@ -324,4 +324,70 @@ test("the Clerk adapter mints the subject from the session's template", async ()
   const hop2 = fake.requests.find((r) => r.step === "customer");
   assert.match(hop2?.form?.subject_token ?? "", /^clerk-sess_a-/);
   fake.done();
+});
+
+test("a network error or a timeout at any hop is an OnBehalfError, status 0, and drops nothing", async () => {
+  for (const at of ["backend", "customer", "door_token"] as const) {
+    let fail = true;
+    const { kit, fake } = setup({
+      fetch: (url, init) => {
+        const step = url.endsWith("/oauth/token")
+          ? "door_token"
+          : new URLSearchParams(init.body ?? "").has("actor_token")
+            ? "customer"
+            : "backend";
+        if (step === at && fail) {
+          fail = false;
+          return Promise.reject(new TypeError("fetch failed"));
+        }
+        return fake.fetch(url, init);
+      },
+    });
+    await assert.rejects(kit.credentialFor(A), (e: unknown) => {
+      assert.ok(e instanceof OnBehalfError, `${at}: ${String(e)}`);
+      assert.deepEqual([e.step, e.status, e.code], [at, 0, null]);
+      assert.ok(e.cause instanceof TypeError);
+      assert.deepEqual(classify(e), { dropActor: false, dropCustomer: false, reason: "unavailable" });
+      return true;
+    });
+    fake.log.length = 0;
+    await kit.credentialFor(A);
+    // The backend's session minted before the failure is kept.
+    assert.deepEqual(fake.log, at === "backend" ? MINT_A : ["subject:sess_a", "as:customer", "as:door_token"], at);
+    fake.done();
+  }
+});
+
+test("a failing signer is step backend, status 0", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
+  const kms = new Error("kms unavailable");
+  const backend = new BackendIdentity({
+    issuer: "https://backend.adopter.example",
+    subject: "backend",
+    audience: "varketa-aud",
+    signer: { publicJwk: jwk as EcJwk, sign: () => Promise.reject(kms) },
+  });
+  const { kit, fake } = setup({ backend });
+  await assert.rejects(kit.credentialFor(A), (e: unknown) => {
+    assert.ok(e instanceof OnBehalfError);
+    assert.deepEqual([e.step, e.status, e.cause], ["backend", 0, kms]);
+    return true;
+  });
+  assert.deepEqual(fake.log, []);
+  fake.done();
+});
+
+test("the Clerk adapter's refusal is step subject with Clerk's status", async () => {
+  const provider = clerkSubjectTokens({
+    secretKey: "sk_test_fake",
+    template: "varketa",
+    apiUrl: CLERK_API,
+    fetch: async () => ({ status: 404, headers: { get: () => null }, text: async () => '{"errors":[]}' }),
+  });
+  await assert.rejects(provider(A), (e: unknown) => {
+    assert.ok(e instanceof OnBehalfError);
+    assert.deepEqual([e.step, e.status], ["subject", 404]);
+    return true;
+  });
 });

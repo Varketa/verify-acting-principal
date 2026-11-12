@@ -77,8 +77,8 @@ outage, call the kit again; it mints afresh.
 
 ## Failures
 
-Each failure is an `OnBehalfError` with its `step`, `status`, `code` and `description`. `classify(e)` says what it
-drops:
+Each failed call to Varketa or to `subjectToken` is an `OnBehalfError` with its `step`, `status` (0 for a network
+error, a timeout or a failing signer), `code` and `description`. `classify(e)` says what it drops:
 
 - an outage (5xx, a timeout, a network error) drops nothing;
 - hop 2's `invalid_grant` `actor_token_not_usable` drops hop 1;
@@ -89,7 +89,7 @@ drops:
 `reason` is a code. The words your customer reads are yours. Varketa's named refusals come in a later version.
 
 Each call to Varketa times out after `timeoutMs` (default 15 s). Door requests through `fetchFor` carry the
-caller's own signal instead.
+caller's own signal instead, and the door's network errors reach your MCP client as your `fetch` raised them.
 
 ## The kit never
 
