@@ -9,7 +9,7 @@ through OIDC (trusted publishing).
 1. In a pull request:
    - set the version in `js/package.json` and `python/pyproject.toml`;
    - run `npm install --package-lock-only` in `js/`;
-   - update EVOLUTION.md's rows.
+   - update EVOLUTION.md's rows, except `Recorded release` (step 4).
 
    The `package` job in [test.yml](.github/workflows/test.yml) is the release's dry run. It runs
    `release/preflight.sh` and `release/build.sh`, and publishes nothing:
@@ -38,6 +38,8 @@ through OIDC (trusted publishing).
      `dist.integrity`, and PyPI's file names and sha256s);
    - `notes`: the GitHub release for the tag. Its notes name the accepted claim-set versions, the vector set with its
      digest (`release/vectors-digest.sh`) and git tree, and `SHA256SUMS`; the artifacts are attached.
+4. Once `notes` has published the release, set EVOLUTION.md's `Recorded release` row to its version, link and
+   publish date, in a pull request.
 
 A failed job can be re-run. A re-run publishes nothing twice, and `read-back` judges what the registries hold.
 

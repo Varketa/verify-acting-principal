@@ -4,7 +4,7 @@
 |---|---|
 | Repository | `Varketa/verify-acting-principal` |
 | Packages | npm `@varketa/verify-acting-principal`, PyPI `varketa-verify-acting-principal` |
-| Recorded release | [0.2.1](https://github.com/Varketa/verify-acting-principal/releases/tag/v0.2.1), published 2026-10-23; its notes record the package and vector digests |
+| Recorded release | [0.3.0](https://github.com/Varketa/verify-acting-principal/releases/tag/v0.3.0), published 2026-11-02; its notes record the package and vector digests |
 | Claim-set versions accepted | `ver` 3, 4 and 5 (from 0.3.0); 3 and 4 in 0.2.x |
 | Vector version | `v5`, and `v4` and `v3` with `unknown-ver` superseded (from 0.3.0); `v4` and `v3` in 0.2.x |
 | Metadata path | `<issuer>/.well-known/varketa-acting-principal` |
