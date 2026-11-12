@@ -3,7 +3,7 @@ name: release
 # each trust this workflow through OIDC (trusted publishing), configured once by the owner.
 on:
   push:
-    tags: ["v*.*.*"]
+    tags: ["v*.*.*", "!v-on-behalf-*"]
 permissions:
   contents: read
 concurrency:

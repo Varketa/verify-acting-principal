@@ -1,0 +1,36 @@
+{
+  "version": "v0",
+  "provisional": true,
+  "status": "PROVISIONAL",
+  "note": [
+    "Derived from a reference adopter's tests; not Varketa's contract.",
+    "Varketa's own fixture set replaces this one before any release."
+  ],
+  "config": {
+    "varketa_origin": "https://varketa.example",
+    "mcp_resource": "https://tenant.varketa.example/mcp",
+    "backend": {
+      "issuer": "https://backend.adopter.example",
+      "subject": "backend",
+      "audience": "varketa-aud"
+    }
+  },
+  "placeholders": {
+    "$assertion": "a fresh backend assertion that verifies under the kit's key set",
+    "$subject": "a subject token the IdP issued for this attempt, never presented before"
+  },
+  "cases": [
+    "hops",
+    "reuse",
+    "expiry",
+    "as-nonce",
+    "actor-refused",
+    "customer-outage",
+    "door-token-invalid-grant",
+    "not-dpop",
+    "fresh",
+    "door-request",
+    "door-nonce",
+    "door-401"
+  ]
+}
