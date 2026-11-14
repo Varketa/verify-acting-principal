@@ -78,7 +78,7 @@ An accepted assertion exposes:
 
 - `tenant`: **the org to authorize against**, your adopter org or one of its customer orgs. An API that serves
   customer orgs MUST authorize every record against `tenant`.
-- `sub` and/or `grant`: the acting person or grant.
+- `sub` and/or `grant`: the acting person or grant. `sub` is opaque and scoped to you, the adopter: never compare it with a `sub` another adopter receives.
 - `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`, from claim set 5
   `discovery` and `on_behalf`, and from claim set 6 `watch_run`, below), `presence` (`delegated`, `interactive`,
   `confirmed`), `run_id` (absent on a person's own act), `approved_by`.
