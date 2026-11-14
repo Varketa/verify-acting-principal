@@ -1,6 +1,6 @@
-"""Verify the Varketa-Acting-Principal header, claim set versions 3, 4 and 5.
+"""Verify the Varketa-Acting-Principal header, claim set versions 3, 4, 5 and 6.
 
-The normative half is SPEC.md and vectors/v5 at the repository root; this module follows the spec's order.
+The normative half is SPEC.md and vectors/v6 at the repository root; this module follows the spec's order.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ __all__ = [
 
 HEADER = "Varketa-Acting-Principal"
 TYP = "varketa-acting-principal+jwt"
-SUPPORTED_VERSIONS = (3, 4, 5)
+SUPPORTED_VERSIONS = (3, 4, 5, 6)
 METADATA_PATH = "/.well-known/varketa-acting-principal"
 _ALGORITHMS = {
     "ES256": (hashes.SHA256, "EC", "P-256", ec.SECP256R1, 32),
@@ -424,14 +424,26 @@ class Verifier:
             raise VerificationError("malformed")
         # A PRESENT sub_id is exactly RFC 9493's iss_sub, its iss and sub non-empty strings, or the assertion is
         # malformed: a verifier never exposes half a subject.
-        sub_id: Optional[dict[str, str]] = None
-        if "sub_id" in c:
-            v = c["sub_id"]
+        def iss_sub(v: Any) -> dict[str, str]:
             if (not isinstance(v, dict) or len(v) != 3 or v.get("format") != "iss_sub"
                     or not isinstance(v.get("iss"), str) or not v["iss"]
                     or not isinstance(v.get("sub"), str) or not v["sub"]):
                 raise VerificationError("malformed")
-            sub_id = {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
+            return {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
+
+        sub_id = iss_sub(c["sub_id"]) if "sub_id" in c else None
+        # A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty
+        # string and sub_id an exact iss_sub, beside a run_id, whatever the version or act_kind.
+        run_owner: Optional[dict[str, Any]] = None
+        if "run_owner" in c:
+            v = c["run_owner"]
+            if (not isinstance(v, dict) or not s("run_id")
+                    or not isinstance(v.get("sub"), str) or not v["sub"]
+                    or len(v) != (2 if "sub_id" in v else 1)):
+                raise VerificationError("malformed")
+            run_owner = {"sub": v["sub"]}
+            if "sub_id" in v:
+                run_owner["sub_id"] = iss_sub(v["sub_id"])
         # A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
         # carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
         actor: Optional[dict[str, str]] = None
@@ -462,4 +474,6 @@ class Verifier:
             identity["sub_id"] = sub_id
         if actor is not None:
             identity["act"] = actor
+        if run_owner is not None:
+            identity["run_owner"] = run_owner
         return identity

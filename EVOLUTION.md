@@ -5,8 +5,8 @@
 | Repository | `Varketa/verify-acting-principal` |
 | Packages | npm `@varketa/verify-acting-principal`, PyPI `varketa-verify-acting-principal` |
 | Recorded release | [0.3.0](https://github.com/Varketa/verify-acting-principal/releases/tag/v0.3.0), published 2026-11-02; its notes record the package and vector digests |
-| Claim-set versions accepted | `ver` 3, 4 and 5 (from 0.3.0); 3 and 4 in 0.2.x |
-| Vector version | `v5`, and `v4` and `v3` with `unknown-ver` superseded (from 0.3.0); `v4` and `v3` in 0.2.x |
+| Claim-set versions accepted | `ver` 3, 4, 5 and 6 (from 0.4.0); 3, 4 and 5 in 0.3.x; 3 and 4 in 0.2.x |
+| Vector version | `v6`, and `v5`, `v4` and `v3` with `unknown-ver` superseded (from 0.4.0); `v5`, `v4` and `v3` in 0.3.x; `v4` and `v3` in 0.2.x |
 | Metadata path | `<issuer>/.well-known/varketa-acting-principal` |
 
 - **Semver, tied to `ver`.** Accepting a new `ver` is a minor release; dropping one is a major release.

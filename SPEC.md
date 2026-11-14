@@ -1,4 +1,4 @@
-# Verifying the Varketa acting principal (claim set versions 3, 4 and 5)
+# Verifying the Varketa acting principal (claim set versions 3, 4, 5 and 6)
 
 When a Varketa agent calls your API, each request carries a `Varketa-Acting-Principal` header: a compact JWS that says
 on whose behalf the call is made, for which of your customer orgs, and for exactly which request. This page is the
@@ -51,7 +51,7 @@ its code is the first one it breaks.
 | 5 | The `kid` is in the set (§2.4) | `kid` |
 | 6 | The signature verifies under that key, whose type and curve match `alg` (a signature part that is not base64url is `malformed`, judged before the key's type; a claims part that is not base64url, or claims that are not a JSON object, is `malformed` once the signature verifies) | `signature` |
 | 7 | `iss` equals the configured issuer | `iss` |
-| 8 | `ver` is a version this verifier knows (3, 4 or 5) | `ver` |
+| 8 | `ver` is a version this verifier knows (3, 4, 5 or 6) | `ver` |
 | 9 | `adopter` equals the configured adopter id | `adopter` |
 | 10 | `aud` equals the configured audience | `aud` |
 | 11 | `iat` is no more than 60 s after now | `not_yet_valid` |
@@ -60,7 +60,7 @@ its code is the first one it breaks.
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.
@@ -79,9 +79,9 @@ An accepted assertion exposes:
 - `tenant`: **the org to authorize against**, your adopter org or one of its customer orgs. An API that serves
   customer orgs MUST authorize every record against `tenant`.
 - `sub` and/or `grant`: the acting person or grant.
-- `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`, and from claim set 5
-  `discovery` and `on_behalf`, below), `presence` (`delegated`, `interactive`, `confirmed`), `run_id` (absent on a
-  person's own act), `approved_by`.
+- `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`, from claim set 5
+  `discovery` and `on_behalf`, and from claim set 6 `watch_run`, below), `presence` (`delegated`, `interactive`,
+  `confirmed`), `run_id` (absent on a person's own act), `approved_by`.
 - `act_kind` `discovery` (claim set 5): Varketa reading your API's own surface, such as an MCP `tools/list` or your
   OpenAPI document, to learn what it offers. It names no tool and no run. Its `sub` is `varketa-discovery` when no
   grant made the request; otherwise `grant` names the grant. Act on no customer's data for it.
@@ -91,6 +91,16 @@ An accepted assertion exposes:
   `delegated`. A present `act` has exactly those two members, both non-empty strings. An `on_behalf` assertion
   without one, or an `act` on any other `act_kind`, is refused `malformed` (check 17): a verifier never exposes half
   an actor, nor an actor on a kind that has none.
+- `act_kind` `watch_run` (claim set 6): a read inside a run of a customer's own standing watch. `run_id` names the
+  check's run, `presence` is `delegated`, and `grant` names the grant; it carries no top-level `sub`. Varketa sends
+  only reads for it.
+- `run_owner` (claim set 6): the person accountable for the run, who defined the automation, requested the evaluation
+  or created the watch. It is not the actor: `act_kind` says a run acted, and `presence` is `delegated`. Do not
+  authorize it as the person present. It is `{"sub": "<subject>"}` or `{"sub": "<subject>", "sub_id": <iss_sub>}`.
+  Its `sub` is the subject this adopter receives as `sub` on that person's own acts. Its `sub_id` is your own subject
+  for the run-as grant, an exact `iss_sub` as below, present only where Varketa holds one. A present `run_owner` has
+  exactly those members, `sub` a non-empty string, and only beside a `run_id`, or the assertion is refused `malformed`
+  (check 17), whatever the `ver` or `act_kind`.
 - `sub_id` (claim set 4): the acting person as YOUR identity provider names them, an
   [RFC 9493](https://www.rfc-editor.org/rfc/rfc9493) subject identifier `{"format": "iss_sub", "iss": "<your IdP's
   issuer>", "sub": "<its subject>"}`. It is present when Varketa holds the acting grant's subject at your provider
@@ -98,7 +108,9 @@ An accepted assertion exposes:
   instead of mapping Varketa's `sub`, and by the pair: a `sub` is unique only within its `iss`, so match `iss` to an
   issuer you trust as well. A present `sub_id` has exactly those three members, `format`
   `iss_sub` and `iss` and `sub` non-empty strings, or the assertion is refused `malformed` (check 17): a verifier
-  never exposes half a subject. It is judged the same way whatever the `ver`.
+  never exposes half a subject. It is judged the same way whatever the `ver`. On a run (`run_id` present), claim sets
+  4 and 5 carry here the subject of the grant the run acts under, its owner, who is accountable for it and is not
+  present; read `act_kind`. From claim set 6 a run carries it only inside `run_owner`.
 - `probe: true` on Varketa's verification probe only. A probe is verified like any other assertion, carries a fixed
   synthetic subject rather than a real person's, and reaches only a read. Act on no real data for it.
 
@@ -130,12 +142,14 @@ throwaway keys used only by the vectors.
 
 A verifier passes the set of every claim-set version it accepts. One case in an older set can be superseded by a
 newer version: each set's `unknown-ver` presents the next version, unknown when that set was cut, so a verifier that
-accepts the next version accepts it. `v3`'s presents `ver` 4 and `v4`'s presents `ver` 5; `v5`'s `unknown-ver`
-(`ver` 6) carries that check now.
+accepts the next version accepts it. `v3`'s presents `ver` 4, `v4`'s `ver` 5 and `v5`'s `ver` 6; `v6`'s
+`unknown-ver` (`ver` 7) carries that check now.
 
 ## 7. Versions
 
-`ver` 5 is the current claim set: claim set 4 plus the `act_kind` values `discovery` and `on_behalf`, and `act`
-(§4). Claim set 4 is claim set 3 plus `sub_id`. A verifier accepts 3, 4 and 5, and passes `vectors/v5`, `vectors/v4`
-and `vectors/v3` (§6). Each library release names the claim-set versions it accepts and the vector
-version it passes. See [EVOLUTION.md](EVOLUTION.md).
+`ver` 6 is the current claim set: claim set 5 plus the `act_kind` value `watch_run` and `run_owner` (§4). Claim set 5
+is claim set 4 plus the `act_kind` values `discovery` and `on_behalf`, and `act`; claim set 4 is claim set 3 plus
+`sub_id`. A verifier accepts 3, 4, 5 and 6, and passes `vectors/v6`, `vectors/v5`, `vectors/v4` and `vectors/v3`
+(§6). A reader that upgrades to 6 without reading `run_owner` loses `sub_id` on runs whose owner Varketa holds an
+adopter subject for: read `run_owner` before you rely on `sub_id` for a run. Each library release names the
+claim-set versions it accepts and the vector version it passes. See [EVOLUTION.md](EVOLUTION.md).

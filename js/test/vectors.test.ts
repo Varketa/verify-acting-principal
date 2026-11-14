@@ -7,14 +7,15 @@ import { Verifier, InMemoryReplayStore, VerificationError, SUPPORTED_VERSIONS, t
 
 const vectors = join(import.meta.dirname, "..", "..", "vectors");
 // The current set, which the tests below the vectors also read.
-const dir = join(vectors, "v5");
+const dir = join(vectors, "v6");
 const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
 // Each accepted claim-set version's set, and the cases a later version supersedes, each with its reason. A superseded
 // case is not skipped: its refusal no longer holds, so its first step must now be accepted.
 const SETS: { version: string; superseded: Record<string, string> }[] = [
-  { version: "v5", superseded: {} },
+  { version: "v6", superseded: {} },
   // Each set's unknown-ver presents the next version, unknown when that set was cut and accepted since: v3's ver 4,
-  // v4's ver 5. v5's unknown-ver presents ver 6.
+  // v4's ver 5, v5's ver 6. v6's unknown-ver presents ver 7.
+  { version: "v5", superseded: { "unknown-ver": "ver 6 is a known claim set since v6" } },
   { version: "v4", superseded: { "unknown-ver": "ver 5 is a known claim set since v5" } },
   { version: "v3", superseded: { "unknown-ver": "ver 4 is a known claim set since v4" } },
 ];

@@ -1,10 +1,10 @@
-// @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set versions 3, 4 and 5.
-// The normative half is ../../SPEC.md and ../../vectors/v5; this file follows the spec's order.
+// @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set versions 3, 4, 5 and 6.
+// The normative half is ../../SPEC.md and ../../vectors/v6; this file follows the spec's order.
 import { createHash, createPublicKey, verify as verifySignature, type KeyObject } from "node:crypto";
 
 export const HEADER = "Varketa-Acting-Principal";
 export const TYP = "varketa-acting-principal+jwt";
-export const SUPPORTED_VERSIONS: readonly number[] = [3, 4, 5];
+export const SUPPORTED_VERSIONS: readonly number[] = [3, 4, 5, 6];
 // `size` is the byte length of each public coordinate (EC: x and y; Ed25519: x alone).
 const ALGORITHMS: Record<string, { hash: string | null; kty: string; crv: string; size: number }> = {
   ES256: { hash: "sha256", kty: "EC", crv: "P-256", size: 32 },
@@ -87,10 +87,14 @@ export interface SubjectId { format: "iss_sub"; iss: string; sub: string }
 /** The actor performing a customer's own act (act_kind on_behalf): RFC 8693's act, the adopter's backend. */
 export interface Actor { sub: string; iss: string }
 
+/** The person accountable for a run (claim set 6), never its actor: `sub` as this adopter receives it on that person's
+ * own acts, and `sub_id` the adopter's own subject for the run-as grant, where Varketa holds one. */
+export interface RunOwner { sub: string; sub_id?: SubjectId }
+
 export interface Identity {
   sub?: string; grant?: string; tenant: string; adopter: string; persona?: string; scopes?: string[];
   act_kind?: string; presence?: string; run_id?: string; approved_by?: unknown; probe?: true;
-  sub_id?: SubjectId; act?: Actor;
+  sub_id?: SubjectId; act?: Actor; run_owner?: RunOwner;
 }
 
 export interface Request { method: string; url: string; body: Uint8Array | string; assertion: string | null | undefined }
@@ -274,14 +278,26 @@ export class Verifier {
     if (!jti || !tenant || (!str("sub") && !str("grant"))) throw new VerificationError("malformed");
     // A PRESENT sub_id is exactly RFC 9493's iss_sub, its iss and sub non-empty strings, or the assertion is malformed:
     // a verifier never exposes half a subject.
-    let subId: SubjectId | undefined;
-    if (Object.hasOwn(c, "sub_id")) {
-      const v = c.sub_id as Record<string, unknown> | null;
+    const issSub = (u: unknown): SubjectId => {
+      const v = u as Record<string, unknown> | null;
       if (typeof v !== "object" || v === null || Array.isArray(v) || Object.keys(v).length !== 3 || v.format !== "iss_sub"
         || typeof v.iss !== "string" || v.iss === "" || typeof v.sub !== "string" || v.sub === "") {
         throw new VerificationError("malformed");
       }
-      subId = { format: "iss_sub", iss: v.iss, sub: v.sub };
+      return { format: "iss_sub", iss: v.iss, sub: v.sub };
+    };
+    const subId = Object.hasOwn(c, "sub_id") ? issSub(c.sub_id) : undefined;
+    // A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty string
+    // and sub_id an exact iss_sub, beside a run_id, whatever the version or act_kind.
+    let runOwner: RunOwner | undefined;
+    if (Object.hasOwn(c, "run_owner")) {
+      const v = c.run_owner as Record<string, unknown> | null;
+      if (typeof v !== "object" || v === null || Array.isArray(v) || !str("run_id") || typeof v.sub !== "string"
+        || v.sub === "" || Object.keys(v).length !== (Object.hasOwn(v, "sub_id") ? 2 : 1)) {
+        throw new VerificationError("malformed");
+      }
+      runOwner = { sub: v.sub };
+      if (Object.hasOwn(v, "sub_id")) runOwner.sub_id = issSub(v.sub_id);
     }
     // A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
     // carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
@@ -310,6 +326,7 @@ export class Verifier {
     if (c.probe === true) id.probe = true;
     if (subId) id.sub_id = subId;
     if (actor) id.act = actor;
+    if (runOwner) id.run_owner = runOwner;
     return id;
   }
 }

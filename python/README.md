@@ -4,8 +4,8 @@ Verify the `Varketa-Acting-Principal` header on an API that Varketa's agents cal
 call is made and for which of your customer orgs, bound to that one request.
 
 - [SPEC.md](https://github.com/Varketa/verify-acting-principal/blob/main/SPEC.md): the language-neutral specification.
-- [vectors/v5](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v5), [vectors/v4](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v4) and [vectors/v3](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v3): the signed test vectors, the normative half. Every library
-  here passes all three, `v4`'s and `v3`'s `unknown-ver` superseded ([SPEC §6](https://github.com/Varketa/verify-acting-principal/blob/main/SPEC.md#6-the-vectors)).
+- [vectors/v6](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v6), [vectors/v5](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v5), [vectors/v4](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v4) and [vectors/v3](https://github.com/Varketa/verify-acting-principal/tree/main/vectors/v3): the signed test vectors, the normative half. Every library
+  here passes all four, `v5`'s, `v4`'s and `v3`'s `unknown-ver` superseded ([SPEC §6](https://github.com/Varketa/verify-acting-principal/blob/main/SPEC.md#6-the-vectors)).
 - [js](https://github.com/Varketa/verify-acting-principal/tree/main/js): TypeScript / Node (`@varketa/verify-acting-principal`), no runtime dependencies.
 - [python](https://github.com/Varketa/verify-acting-principal/tree/main/python): Python (`varketa-verify-acting-principal`), on `cryptography`.
 
