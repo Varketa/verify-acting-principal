@@ -331,7 +331,8 @@ export class Verifier {
     const suppliedBody = req.body;
     const body = typeof suppliedBody === "string" ? suppliedBody : Buffer.from(suppliedBody);
     if (str("iss") !== this.#o.issuer) throw new VerificationError("iss");
-    if (!SUPPORTED_VERSIONS.includes(num("ver") ?? NaN)) throw new VerificationError("ver");
+    const ver = num("ver");
+    if (ver === undefined || !SUPPORTED_VERSIONS.includes(ver)) throw new VerificationError("ver");
     if (str("adopter") !== this.#o.adopter) throw new VerificationError("adopter");
     if (str("aud") !== this.#o.audience) throw new VerificationError("aud");
     if (iat === undefined || iat > at + SKEW) throw new VerificationError("not_yet_valid");
@@ -356,10 +357,12 @@ export class Verifier {
       }
       subId = { format: "iss_sub", iss: v.iss, sub: v.sub };
     }
+    const actKind = str("act_kind");
+    if (ver < 5 && (actKind === "discovery" || actKind === "on_behalf")) throw new VerificationError("malformed");
     // A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
     // carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
     let actor: Actor | undefined;
-    if (Object.hasOwn(c, "act") !== (str("act_kind") === "on_behalf")) throw new VerificationError("malformed");
+    if (Object.hasOwn(c, "act") !== (actKind === "on_behalf")) throw new VerificationError("malformed");
     if (Object.hasOwn(c, "act")) {
       const v = c.act as Record<string, unknown> | null;
       if (typeof v !== "object" || v === null || Array.isArray(v) || Object.keys(v).length !== 2
