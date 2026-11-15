@@ -55,7 +55,7 @@ be an integer excluding booleans. An invalid sample is an operational error. The
 | 3 | `alg` is `ES256`, `ES384` or `EdDSA`; `none`, RSA and HMAC are refused | `alg` |
 | 4 | The key set is fresh (§2.3) | `jwks_unavailable` |
 | 5 | The `kid` is in the set (§2.4) | `kid` |
-| 6 | The signature verifies under that key, whose type and curve match `alg` (a signature part that is not base64url is `malformed`, judged before the key's type; a claims part that is not base64url, or claims that are not a JSON object, is `malformed` once the signature verifies) | `signature` |
+| 6 | The signature verifies under that key. The key's type and curve match the protected header's `alg`, and the JWK's own `alg`, when present, matches it too. A signature part that is not base64url is `malformed`, judged before key compatibility. A claims part that is not base64url, or claims that are not a JSON object, is `malformed` once the signature verifies. | `signature` |
 | 7 | `iss` equals the configured issuer | `iss` |
 | 8 | `ver` is a version this verifier knows (3, 4 or 5) | `ver` |
 | 9 | `adopter` equals the configured adopter id | `adopter` |
@@ -164,7 +164,8 @@ database insert). The libraries' in-memory store is correct for one instance onl
 `vectors/v<ver>/cases/<name>.json` is one verifier's life:
 
 - `fetches`: what each URL answers. The i-th fetch of a URL gets its i-th response, and the last one repeats. A
-  missing `body` is an empty one.
+  missing `body` is an empty one. A status other than 200, including 3xx, is a failed fetch. The script does not
+  follow redirects (§2.5).
 - `steps`, in order, each with its clock (`now`, seconds since the epoch), the request (`method`, `url`,
   `body_b64url`), the `assertion` header value, and `expect`: `accept` with the exposed `identity`, or a refusal
   `code`. Where `jwks_fetches` is present, the JWK Set must have been fetched exactly that many times by then.
