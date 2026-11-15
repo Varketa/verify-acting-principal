@@ -104,7 +104,9 @@ export interface Request { method: string; url: string; body: Uint8Array | strin
 // A bounded fetch: no redirect, 10 s for the whole document, and at most 64 KiB (SPEC §2.5).
 const defaultFetch: FetchDocument = async (url) => {
   const deadline = performance.now() + FETCH_TIMEOUT_MS;
-  const signal = AbortSignal.timeout(Math.max(0, Math.ceil(deadline - performance.now())));
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) throw new Error(`${url}: no time left to fetch`);
+  const signal = AbortSignal.timeout(Math.ceil(remaining));
   const r = await fetch(url, { redirect: "error", headers: { accept: "application/json" }, signal });
   const chunks: Uint8Array[] = [];
   let size = 0;

@@ -163,6 +163,37 @@ for (const scenario of [
   });
 }
 
+for (const [elapsed, expected] of [
+  [10000, []],
+  [9999, ["timer:1", "metadata"]],
+] as const) {
+  test(`default discovery dispatch: ${elapsed} ms already elapsed`, async (t) => {
+    const metadata = `${manifest.config.issuer}/.well-known/varketa-acting-principal`;
+    const events: string[] = [];
+    let reads = 0;
+    t.mock.method(performance, "now", () => reads++ === 0 ? 0 : elapsed);
+    t.mock.method(AbortSignal, "timeout", (ms: number) => {
+      events.push(`timer:${ms}`);
+      return new AbortController().signal;
+    });
+    t.mock.method(globalThis, "fetch", async (url: string) => {
+      events.push(url === metadata ? "metadata" : url);
+      throw new Error("inert transport failed");
+    });
+    const v = new Verifier({
+      ...manifest.config,
+      clock: () => 0,
+      replayStore: { setIfAbsent: async () => assert.fail("discovery failure reached replay") },
+    });
+    const header = Buffer.from(JSON.stringify({ typ: "varketa-acting-principal+jwt", alg: "EdDSA", kid: "test" }));
+    await assert.rejects(v.verify({
+      method: "GET", url: manifest.config.audience, body: "", assertion: `${header.toString("base64url")}.e30.AAAA`,
+    }), (error: unknown) => error instanceof VerificationError && error.code === "jwks_unavailable");
+    t.diagnostic(JSON.stringify({ elapsed, events }));
+    assert.deepEqual(events, expected);
+  });
+}
+
 test("shared discovery and key boundaries", async (t) => {
   type DiscoveryStep = Pick<Step, "now"> & {
     label: string;
