@@ -101,10 +101,11 @@ export interface Identity {
 
 export interface Request { method: string; url: string; body: Uint8Array | string; assertion: string | null | undefined }
 
-// A bounded fetch: no redirect, 10 s for the whole fetch (the signal aborts the body's read too, so a dripping answer is
-// cut off), and at most 64 KiB, so a stalled, dripping or oversized issuer answer fails closed (SPEC §2.5).
+// A bounded fetch: no redirect, 10 s for the whole document, and at most 64 KiB (SPEC §2.5).
 const defaultFetch: FetchDocument = async (url) => {
-  const r = await fetch(url, { redirect: "error", headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  const deadline = performance.now() + FETCH_TIMEOUT_MS;
+  const signal = AbortSignal.timeout(Math.max(0, Math.ceil(deadline - performance.now())));
+  const r = await fetch(url, { redirect: "error", headers: { accept: "application/json" }, signal });
   const chunks: Uint8Array[] = [];
   let size = 0;
   for await (const chunk of r.body ?? []) {
@@ -112,8 +113,11 @@ const defaultFetch: FetchDocument = async (url) => {
     if (size > MAX_DOCUMENT_BYTES) throw new Error(`${url}: document over ${MAX_DOCUMENT_BYTES} bytes`);
     chunks.push(chunk);
   }
-  return { status: r.status, cacheControl: r.headers.get("cache-control"),
+  const document = { status: r.status, cacheControl: r.headers.get("cache-control"),
     body: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)) };
+  // The abort timer can still be waiting to run when the stream completes.
+  if (performance.now() >= deadline) throw new Error(`${url}: no complete answer within ${FETCH_TIMEOUT_MS} ms`);
+  return document;
 };
 
 function maxAge(cacheControl: string | null): number {
