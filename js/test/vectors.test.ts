@@ -298,6 +298,27 @@ test("assertion JSON depth uses the exact shared signed bytes", async (t) => {
   }
 });
 
+test("approval chains use the exact shared signed bytes", async (t) => {
+  type ApprovalCase = Omit<Case, "steps"> & { steps: (Step & { label: string })[] };
+  const cases: ApprovalCase[] = JSON.parse(readFileSync(join(vectors, "..", "testdata", "approval-chains.json"), "utf8"));
+  for (const c of cases) {
+    await t.test(c.name, async () => {
+      const h = harness(c);
+      for (const step of c.steps) {
+        h.setNow(step.now);
+        const { method, url, body_b64url } = step.request;
+        const result = h.v.verify({ method, url, body: Buffer.from(body_b64url, "base64url"), assertion: step.assertion });
+        if (step.expect.accept) {
+          assert.deepEqual(await result, step.expect.identity, step.label);
+        } else {
+          await assert.rejects(result, { name: "VerificationError", code: step.expect.code }, step.label);
+        }
+        assert.equal(h.counts.get(jwksUrl) ?? 0, step.expect.jwks_fetches, step.label);
+      }
+    });
+  }
+});
+
 // A throwaway Ed25519 key under kid: its JWK, and an assertion of claims it signs.
 function signer(kid: string) {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
