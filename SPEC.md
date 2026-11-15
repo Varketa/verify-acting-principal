@@ -65,6 +65,10 @@ its code is the first one it breaks.
 
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.
 
+Supply the verifier with the exact request body bytes for check 16. Re-serializing JSON or converting the bytes
+to text and back can change the hash. A caller-supplied string with an unpaired surrogate has no lossless UTF-8 encoding.
+This concerns the request body supplied to the verifier, separate from JSON decoding of the signed assertion.
+
 Why `adopter` matters: `aud` is the origin a Varketa tenant registered, and any tenant can register any origin. So a
 valid Varketa signature with your `aud` can still be a call for ANOTHER adopter's source on the same origin. Only the
 `adopter` check pins the call to yours.
@@ -101,6 +105,11 @@ An accepted assertion exposes:
   never exposes half a subject. It is judged the same way whatever the `ver`.
 - `probe: true` on Varketa's verification probe only. A probe is verified like any other assertion, carries a fixed
   synthetic subject rather than a real person's, and reaches only a read. Act on no real data for it.
+
+When Varketa asserts an approval, it emits `approved_by` as a chain of up to eight links. Each link has a
+string `sub` naming the approver's grant and, when another link follows, an `act` member containing that link.
+The outermost `sub` identifies the approver selected for this apply. Varketa omits the claim when it has no
+approver to report. The verifier libraries expose the parsed claim without validating the chain.
 
 Authorization against these values is your own policy.
 
