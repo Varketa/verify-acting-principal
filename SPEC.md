@@ -60,7 +60,7 @@ its code is the first one it breaks.
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 The protected header and claims each have a maximum JSON depth of 32, counting the root object as level 1.
@@ -122,7 +122,14 @@ An accepted assertion exposes:
 When Varketa asserts an approval, it emits `approved_by` as a chain of up to eight links. Each link has a
 string `sub` naming the approver's grant and, when another link follows, an `act` member containing that link.
 The outermost `sub` identifies the approver selected for this apply. Varketa omits the claim when it has no
-approver to report. The verifier libraries expose the parsed claim without validating the chain.
+approver to report. The verifier leaves the claim absent in that case.
+
+A present `approved_by` must be an object of one to eight links. Each decoded link has its own `sub`,
+a string containing at least one character outside [Unicode 17.0 White_Space](https://www.unicode.org/Public/17.0.0/ucd/PropList.txt),
+and only an optional `act` member containing the next link. The verifier exposes the accepted parsed chain unchanged,
+including repeated grant values. It refuses any other shape as `malformed` at check 17 before recording replay.
+Earlier verifier versions accepted some signed values outside this shape. The new check accepts the shape emitted by
+the supported typed Varketa issuer. It does not establish whether the approvals were authorized or independent.
 
 Authorization against these values is your own policy.
 

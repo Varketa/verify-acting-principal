@@ -123,6 +123,18 @@ class Vectors(unittest.TestCase):
                     if want["jwks_fetches"] == 0:
                         self.assertFalse(h.counts)
 
+    def test_approval_chains_use_the_exact_shared_signed_bytes(self) -> None:
+        path = VECTORS.parent / "testdata" / "approval-chains.json"
+        for case in json.loads(path.read_bytes()):
+            h = Harness(case)
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify(step)
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
+
     def test_of_two_concurrent_copies_exactly_one_is_accepted(self) -> None:
         case = json.loads((DIR / "cases" / "good.json").read_text())
         h = Harness(case)

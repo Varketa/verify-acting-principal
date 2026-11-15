@@ -19,6 +19,9 @@ const REFETCH_INTERVAL = 60;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
 const MAX_ASSERTION_DEPTH = 32;
+const MAX_APPROVAL_LINKS = 8;
+// Unicode 17.0 White_Space, pinned to keep the wire rule independent of runtime trim behavior.
+const NON_WHITESPACE = /[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u;
 export const METADATA_PATH = "/.well-known/varketa-acting-principal";
 
 /** One code per refusal, in the spec's order. */
@@ -175,6 +178,19 @@ function json(b: Buffer, kind: "document" | "assertion" = "document"): Record<st
   } catch {
     throw new VerificationError("malformed");
   }
+}
+
+function isApprovalChain(link: unknown): boolean {
+  for (let i = 0; i < MAX_APPROVAL_LINKS; i++) {
+    if (link === null || typeof link !== "object" || Array.isArray(link)) return false;
+    const value = link as Record<string, unknown>;
+    if (!Object.hasOwn(value, "sub") || typeof value.sub !== "string" || !NON_WHITESPACE.test(value.sub)) return false;
+    const hasNext = Object.hasOwn(value, "act");
+    if (Object.keys(value).length !== (hasNext ? 2 : 1)) return false;
+    if (!hasNext) return true;
+    link = value.act;
+  }
+  return false;
 }
 
 export class Verifier {
@@ -345,6 +361,8 @@ export class Verifier {
       }
       actor = { sub: v.sub, iss: v.iss };
     }
+    const hasApproval = Object.hasOwn(c, "approved_by");
+    if (hasApproval && !isApprovalChain(c.approved_by)) throw new VerificationError("malformed");
     // LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
     // The record lives through the last accepted second, exp + 60 s inclusive: a whole number of seconds, at least 1.
     if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, exp + SKEW - at + 1, at))) {
@@ -356,7 +374,7 @@ export class Verifier {
       if (v !== undefined) id[k] = v;
     }
     if (Array.isArray(c.scopes)) id.scopes = c.scopes.filter((s): s is string => typeof s === "string");
-    if (c.approved_by !== undefined) id.approved_by = c.approved_by;
+    if (hasApproval) id.approved_by = c.approved_by;
     if (c.probe === true) id.probe = true;
     if (subId) id.sub_id = subId;
     if (actor) id.act = actor;

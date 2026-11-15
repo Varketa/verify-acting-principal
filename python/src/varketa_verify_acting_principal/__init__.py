@@ -45,6 +45,9 @@ _REFETCH_INTERVAL = 60
 _FETCH_TIMEOUT = 10
 _MAX_DOCUMENT_BYTES = 64 * 1024
 _MAX_ASSERTION_DEPTH = 32
+_MAX_APPROVAL_LINKS = 8
+# Unicode 17.0 White_Space, pinned to keep the wire rule independent of runtime strip behavior.
+_NON_WHITESPACE = re.compile(r"[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]")
 _B64URL = re.compile(r"[A-Za-z0-9_-]*")
 
 
@@ -252,6 +255,22 @@ def _object(b: bytes, *, assertion: bool = False) -> dict[str, Any]:
     if not isinstance(v, dict) or (assertion and not _has_scalar_escapes(text)):
         raise VerificationError("malformed")
     return v
+
+
+def _is_approval_chain(link: Any) -> bool:
+    for _ in range(_MAX_APPROVAL_LINKS):
+        if not isinstance(link, dict):
+            return False
+        sub = link.get("sub")
+        if not isinstance(sub, str) or not _NON_WHITESPACE.search(sub):
+            return False
+        has_next = "act" in link
+        if len(link) != (2 if has_next else 1):
+            return False
+        if not has_next:
+            return True
+        link = link["act"]
+    return False
 
 
 def _public_key(jwk: dict[str, Any], alg: str) -> Any:
@@ -498,6 +517,8 @@ class Verifier:
                     or not isinstance(v.get("iss"), str) or not v["iss"]):
                 raise VerificationError("malformed")
             actor = {"sub": v["sub"], "iss": v["iss"]}
+        if "approved_by" in c and not _is_approval_chain(c["approved_by"]):
+            raise VerificationError("malformed")
         # LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
         # The record lives through the last accepted second, exp + 60 s inclusive: whole seconds, at least 1.
         if not self._store.set_if_absent(f"{self._issuer}\0{jti}", exp + _SKEW - at + 1, at):
