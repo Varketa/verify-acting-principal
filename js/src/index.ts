@@ -122,10 +122,33 @@ function b64url(s: string): Buffer {
   return Buffer.from(s, "base64url");
 }
 
-function json(b: Buffer): Record<string, unknown> {
+// After JSON syntax validation, every backslash begins an escape inside a string.
+// Scan the source so a duplicate name cannot hide a malformed earlier value.
+function hasScalarEscapes(text: string): boolean {
+  let offset = 0;
+  while (true) {
+    offset = text.indexOf("\\", offset);
+    if (offset === -1) return true;
+    if (text[offset + 1] !== "u") {
+      offset += 2;
+      continue;
+    }
+    const unit = Number.parseInt(text.slice(offset + 2, offset + 6), 16);
+    offset += 6;
+    if (unit < 0xd800 || unit > 0xdfff) continue;
+    if (unit >= 0xdc00 || !text.startsWith("\\u", offset)) return false;
+    const low = Number.parseInt(text.slice(offset + 2, offset + 6), 16);
+    if (low < 0xdc00 || low > 0xdfff) return false;
+    offset += 6;
+  }
+}
+
+function json(b: Buffer, kind: "document" | "assertion" = "document"): Record<string, unknown> {
   try {
-    const v = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(b));
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(b);
+    const v = JSON.parse(text);
     if (v === null || typeof v !== "object" || Array.isArray(v)) throw new Error();
+    if (kind === "assertion" && !hasScalarEscapes(text)) throw new Error();
     return v as Record<string, unknown>;
   } catch {
     throw new VerificationError("malformed");
@@ -208,7 +231,7 @@ export class Verifier {
     const now = this.#clock();
     const parts = (req.assertion ?? "").split(".");
     if (parts.length !== 3) throw new VerificationError("malformed");
-    const header = json(b64url(parts[0]));
+    const header = json(b64url(parts[0]), "assertion");
     if (header.typ !== TYP) throw new VerificationError("typ");
     const alg = typeof header.alg === "string" ? ALGORITHMS[header.alg] : undefined;
     if (!alg || !Object.hasOwn(ALGORITHMS, header.alg as string)) throw new VerificationError("alg");
@@ -252,7 +275,7 @@ export class Verifier {
       ? verifySignature(null, signed, key, sig)
       : verifySignature(alg.hash, signed, { key, dsaEncoding: "ieee-p1363" }, sig);
     if (!ok) throw new VerificationError("signature");
-    const c = json(b64url(parts[1]));
+    const c = json(b64url(parts[1]), "assertion");
     // The clock again, after any key-set wait: the time checks and the replay record's lifetime use it.
     const at = this.#clock();
     const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);

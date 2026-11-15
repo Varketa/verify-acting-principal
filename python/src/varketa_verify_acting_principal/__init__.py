@@ -194,13 +194,37 @@ def _integer(literal: str) -> Any:
     return int(literal)
 
 
-def _object(b: bytes) -> dict[str, Any]:
+def _has_scalar_escapes(text: str) -> bool:
+    # Scan valid JSON source so a duplicate name cannot hide a malformed earlier value.
+    # Every backslash begins an escape inside a string.
+    offset = 0
+    while True:
+        offset = text.find("\\", offset)
+        if offset == -1:
+            return True
+        if text[offset + 1] != "u":
+            offset += 2
+            continue
+        unit = int(text[offset + 2:offset + 6], 16)
+        offset += 6
+        if not 0xd800 <= unit <= 0xdfff:
+            continue
+        if unit >= 0xdc00 or not text.startswith("\\u", offset):
+            return False
+        low = int(text[offset + 2:offset + 6], 16)
+        if not 0xdc00 <= low <= 0xdfff:
+            return False
+        offset += 6
+
+
+def _object(b: bytes, *, assertion: bool = False) -> dict[str, Any]:
     try:
-        v = json.loads(b.decode("utf-8"), parse_constant=_no_constant, parse_int=_integer)
+        text = b.decode("utf-8")
+        v = json.loads(text, parse_constant=_no_constant, parse_int=_integer)
     except (ValueError, UnicodeDecodeError, RecursionError) as e:
         # RecursionError: JSON nested past the interpreter's limit, which an unsigned header can be.
         raise VerificationError("malformed") from e
-    if not isinstance(v, dict):
+    if not isinstance(v, dict) or (assertion and not _has_scalar_escapes(text)):
         raise VerificationError("malformed")
     return v
 
@@ -355,7 +379,7 @@ class Verifier:
         parts = (assertion or "").split(".")
         if len(parts) != 3:
             raise VerificationError("malformed")
-        header = _object(_b64url(parts[0]))
+        header = _object(_b64url(parts[0]), assertion=True)
         if header.get("typ") != TYP:
             raise VerificationError("typ")
         alg = header.get("alg")
@@ -378,7 +402,7 @@ class Verifier:
         except (InvalidSignature, ValueError, TypeError, VerificationError) as e:
             # Any failure to build the published key, or to verify under it, is a signature failure, as in JS.
             raise VerificationError("signature") from e
-        c = _object(_b64url(parts[1]))
+        c = _object(_b64url(parts[1]), assertion=True)
         # The clock again, after any key-set wait: the time checks and the replay record's lifetime use it.
         at = self._clock()
 

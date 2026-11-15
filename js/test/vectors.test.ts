@@ -255,6 +255,27 @@ test("the default fetch refuses invalid UTF-8 and oversized documents, then reco
 
 const jwksUrl = `${manifest.config.issuer}/.well-known/varketa-acting-principal/jwks.json`;
 
+test("assertion JSON scalar escapes use exact shared signed bytes", async () => {
+  type ScalarCase = Omit<Case, "steps"> & { steps: (Step & { label: string })[] };
+  const cases: ScalarCase[] = JSON.parse(readFileSync(join(vectors, "..", "testdata", "assertion-json-scalars.json"), "utf8"));
+  for (const c of cases) {
+    const h = harness(c);
+    for (const step of c.steps) {
+      h.setNow(step.now);
+      const { method, url, body_b64url } = step.request;
+      const req = { method, url, body: Buffer.from(body_b64url, "base64url"), assertion: step.assertion };
+      const context = `${c.name}, ${step.label}`;
+      if (step.expect.accept) {
+        assert.deepEqual(await h.v.verify(req), step.expect.identity, context);
+      } else {
+        await assert.rejects(h.v.verify(req), (e) => e instanceof VerificationError && e.code === step.expect.code, context);
+      }
+      assert.equal(h.counts.get(jwksUrl) ?? 0, step.expect.jwks_fetches, context);
+      if (step.expect.jwks_fetches === 0) assert.equal(h.counts.size, 0, context);
+    }
+  }
+});
+
 // A throwaway Ed25519 key under kid: its JWK, and an assertion of claims it signs.
 function signer(kid: string) {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
