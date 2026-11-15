@@ -1,8 +1,6 @@
 // The deployed-JWKS discovery check: run by hand (`npm run discovery`), never in CI, since it reads the network.
-// It proves DISCOVERY interop with an issuer's deployed metadata and key set: issuer, jwks_uri, each key's kid, alg,
-// use, and a kty and crv matching its alg that parse as a public key; each document within the library's 10 s and
-// 64 KiB, with a max-age (read as the library reads it) of 1 to 300 s. It is NOT a signature by that issuer's key, which no test can hold. Its
-// one negative: an assertion under a kid the deployed set does not hold is refused `kid`, after one fresh refetch.
+// It checks the deployed issuer metadata and key set, including each key's public-key shape and a max-age of 1 to
+// 300 s. It also checks that a locally signed assertion with an unknown kid is refused as `kid` after one refetch.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createPublicKey, generateKeyPairSync, sign } from "node:crypto";
@@ -10,13 +8,15 @@ import { Verifier, InMemoryReplayStore, VerificationError, METADATA_PATH, SUPPOR
 
 const issuer = process.env.VARKETA_ISSUER ?? "https://api.varketa.ai";
 
-// The library's bounds and grammar, restated here because its defaults are not exported.
+// The size threshold for the diagnostic's decoded documents.
 const MAX_DOCUMENT_BYTES = 64 * 1024;
 const KEY_TYPES: Record<string, { kty: string; crv: string }> = {
   ES256: { kty: "EC", crv: "P-256" }, ES384: { kty: "EC", crv: "P-384" }, EdDSA: { kty: "OKP", crv: "Ed25519" },
 };
 
-// One fetch as the library's default makes it: no redirect, 10 s, at most 64 KiB.
+// The diagnostic refuses redirects and uses a 10 s timeout. Response.text() buffers the whole body and replaces
+// invalid UTF-8 before the 64 KiB check on the decoded text's UTF-8 byte length. The SDK's default fetch caps
+// raw bytes as it streams them and rejects invalid UTF-8.
 async function fetchBounded(url: string) {
   const r = await fetch(url, { redirect: "error", headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
   const body = await r.text();
@@ -61,8 +61,7 @@ test(`an unknown kid is refused against the deployed key set at ${issuer}`, asyn
   const now = Math.floor(Date.now() / 1000);
   const body = enc({ ver: SUPPORTED_VERSIONS.at(-1), iss: issuer, iat: now, exp: now + 60, jti: `discovery-${now}` });
   const sig = sign("sha256", Buffer.from(`${head}.${body}`), { key: privateKey, dsaEncoding: "ieee-p1363" });
-  // A counting fetch (the library's default bounds, fetchBounded; the default is not exported), so the one fresh
-  // refetch on the unknown kid is asserted.
+  // Count key-set reads through the same diagnostic fetch to check for one fresh refetch on the unknown kid.
   let jwksFetches = 0;
   const md = await get(issuer + METADATA_PATH);
   const v = new Verifier({ issuer, adopter: "discovery-check", audience: "https://discovery-check.invalid",
