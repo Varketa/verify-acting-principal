@@ -379,16 +379,18 @@ class Verifier:
             keys = _object(r.body).get("keys") if r else None
         except VerificationError:
             keys = None
+        # Publish refreshed metadata only with the key set fetched through it. Failure leaves the prior snapshot intact,
+        # including its expiry. An unknown kid's failed refetch therefore leaves an unexpired snapshot usable (SPEC §2.3).
+        if r is None or not isinstance(keys, list):
+            return False
+        key_map = {k["kid"]: k for k in keys if isinstance(k, dict) and isinstance(k.get("kid"), str)}
+        key_max_age = _max_age(r.cache_control)
         with self._lock:
             if metadata:
                 self._jwks_uri, self._md_fetched_at, self._md_max_age = metadata
-            # A failed key-set fetch leaves the cache as it was: a fresh set stays usable until its max-age (SPEC §2.3
-            # refuses only after expiry), so an unknown kid's refetch against a failing issuer cannot discard it.
-            if not isinstance(keys, list):
-                return False
-            self._keys = {k["kid"]: k for k in keys if isinstance(k, dict) and isinstance(k.get("kid"), str)}
-            self._fetched_at, self._max_age = now, _max_age(r.cache_control)
-            return True
+            self._keys = key_map
+            self._fetched_at, self._max_age = now, key_max_age
+        return True
 
     def _stale(self, now: int) -> bool:
         return self._keys is None or now - self._fetched_at >= self._max_age \

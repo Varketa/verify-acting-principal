@@ -234,25 +234,33 @@ export class Verifier {
   }
 
   async #reload(now: number): Promise<boolean> {
-    if (this.#jwksUri === "" || now - this.#mdFetchedAt >= this.#mdMaxAge) {
+    let jwksUri = this.#jwksUri;
+    let metadataMaxAge: number | undefined;
+    if (jwksUri === "" || now - this.#mdFetchedAt >= this.#mdMaxAge) {
       const md = await this.#get(this.#o.issuer + METADATA_PATH);
       if (!md) return false;
       let doc: Record<string, unknown>;
       try { doc = json(Buffer.from(md.body)); } catch { return false; }
       if (doc.issuer !== this.#o.issuer || typeof doc.jwks_uri !== "string" || !doc.jwks_uri.startsWith("https://")) return false;
-      this.#jwksUri = doc.jwks_uri;
-      this.#mdFetchedAt = now;
-      this.#mdMaxAge = maxAge(md.cacheControl);
+      jwksUri = doc.jwks_uri;
+      metadataMaxAge = maxAge(md.cacheControl);
     }
-    const r = await this.#get(this.#jwksUri);
+    const r = await this.#get(jwksUri);
     let keys: unknown;
     try { keys = r && json(Buffer.from(r.body)).keys; } catch { keys = undefined; }
-    // A failed key-set fetch leaves the cache as it was: a fresh set stays usable until its max-age (SPEC §2.3 refuses only
-    // after expiry), so an unknown kid's refetch against a failing issuer cannot discard it.
+    // Publish refreshed metadata only with the key set fetched through it. Failure leaves the prior snapshot intact,
+    // including its expiry. An unknown kid's failed refetch therefore leaves an unexpired snapshot usable (SPEC §2.3).
     if (!r || !Array.isArray(keys)) return false;
-    this.#keys = new Map(keys.filter((k) => k && typeof k.kid === "string").map((k) => [k.kid as string, k]));
+    const keyMap = new Map(keys.filter((k) => k && typeof k.kid === "string").map((k) => [k.kid as string, k]));
+    const keyMaxAge = maxAge(r.cacheControl);
+    if (metadataMaxAge !== undefined) {
+      this.#jwksUri = jwksUri;
+      this.#mdFetchedAt = now;
+      this.#mdMaxAge = metadataMaxAge;
+    }
+    this.#keys = keyMap;
     this.#fetchedAt = now;
-    this.#maxAge = maxAge(r.cacheControl);
+    this.#maxAge = keyMaxAge;
     return true;
   }
 
