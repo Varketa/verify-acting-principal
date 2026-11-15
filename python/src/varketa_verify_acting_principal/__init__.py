@@ -69,7 +69,8 @@ class FetchedDocument:
 class ReplayStore(Protocol):
     def set_if_absent(self, key: str, ttl_seconds: int, now: int) -> bool:
         """Insert `key` with a time to live and report whether THIS call inserted it, in one atomic step: of two
-        concurrent calls with one key, exactly one returns True. Never a read followed by a write."""
+        concurrent calls with one key, exactly one returns True. Never a read followed by a write.
+        Return False only for a conflict. Raise if the result is unknown, including a lost write acknowledgement."""
 
 
 class _Flight:
@@ -393,10 +394,16 @@ class Verifier:
                 self._flight = None
             flight.done.set()
 
+    def _read_clock(self) -> int:
+        now = self._clock()
+        if not isinstance(now, int) or isinstance(now, bool):
+            raise ValueError("verify-acting-principal: clock must return integer epoch seconds")
+        return now
+
     def _key_for(self, kid: str) -> Optional[dict[str, Any]]:
         # A stale cache: one discovery serves every verify that needs it, and a failed one refuses them all.
         with self._lock:
-            now = self._clock()
+            now = self._read_clock()
             flight, lead = self._flight_for(now, refetch=False) if self._stale(now) else (None, False)
         if flight is not None:
             self._fly(flight, lead, now)
@@ -404,7 +411,7 @@ class Verifier:
                 raise VerificationError("jwks_unavailable")
         # An unknown kid: refetch once, or wait for a discovery already under way, which may bring it.
         with self._lock:
-            now = self._clock()
+            now = self._read_clock()
             jwk = self._keys.get(kid) if self._keys else None
             flight, lead = self._flight_for(now, refetch=True) if jwk is None else (None, False)
         if flight is not None:
@@ -412,14 +419,14 @@ class Verifier:
         with self._lock:
             jwk = self._keys.get(kid) if self._keys else None
             # The clock again, after any wait: a discovery that expired during its fetch is unavailable.
-            at = self._clock()
+            at = self._read_clock()
             if (self._md_max_age > 0 and at - self._md_fetched_at >= self._md_max_age) \
                     or (self._max_age > 0 and at - self._fetched_at >= self._max_age):
                 raise VerificationError("jwks_unavailable")
             return jwk
 
     def verify(self, *, method: str, url: str, body: Union[bytes, str], assertion: Optional[str]) -> dict[str, Any]:
-        """Verify one request's assertion and return the identity to authorize against, or raise VerificationError."""
+        """Return the verified identity. Ordered refusals use VerificationError. Callback and store errors may propagate."""
         parts = (assertion or "").split(".")
         if len(parts) != 3:
             raise VerificationError("malformed")
@@ -448,7 +455,7 @@ class Verifier:
             raise VerificationError("signature") from e
         c = _object(_b64url(parts[1]), assertion=True)
         # The clock again, after any key-set wait: the time checks and the replay record's lifetime use it.
-        at = self._clock()
+        at = self._read_clock()
 
         def s(k: str) -> Optional[str]:
             return c[k] if isinstance(c.get(k), str) else None

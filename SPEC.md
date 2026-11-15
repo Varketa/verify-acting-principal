@@ -42,6 +42,12 @@ It also REQUIRES a replay store (§5). There is no silent default.
 Refuse at the first failing check with its code. The order is normative: a vector can break more than one check, and
 its code is the first one it breaks.
 
+These codes describe verification refusals, including failed key acquisition where §2 prescribes it. The SDK can
+also propagate configuration, runtime and adopter callback failures as operational errors. A URL mapping that
+returns a different URL fails check 15. A mapping that throws fails the operation without that verdict. The default
+clocks return whole epoch seconds. Each custom JavaScript clock sample must be finite and each Python sample must
+be an integer excluding booleans. An invalid sample is an operational error. The verifier does not substitute a clock.
+
 | # | Check | Code |
 |---|---|---|
 | 1 | The header is present, has three dot-separated parts, and its first is a base64url JSON object | `malformed` |
@@ -137,8 +143,14 @@ Authorization against these values is your own policy.
 
 Record `jti` only AFTER every other check passes, so a refused assertion's `jti` is never recorded. The record is the
 atomic step: an insert-if-absent on (`iss`, `jti`) whose time to live covers the last accepted second, `exp` + 60 s
-inclusive: `exp + 60 − now + 1` whole seconds, never less than 1. A conflict is a replay and is refused, so of two concurrent copies of one assertion exactly one is accepted. The store interface is set-if-absent,
-never a read followed by a write.
+inclusive: `exp + 60 − now + 1` seconds, never less than 1. For a fractional JavaScript clock sample the computed TTL
+may be fractional. Before the store call the JavaScript SDK requires a finite TTL and finite computed exclusive
+expiry strictly after the computed inclusive cutoff. Unrepresentable retention is an operational error.
+
+The store returns false for a conflict, which is refused as `replay`. Of two concurrent copies of one assertion
+exactly one is accepted. The store interface is set-if-absent, never a read followed by a write. A storage failure
+can leave the outcome unknown, for example if the acknowledgement is lost after insertion. In that case the store
+raises an error. The verifier returns no identity and does not retry the insertion or interpret it as a conflict.
 
 An API served by more than one instance MUST supply a shared store (Redis `SET key 1 NX EX ttl`, or a unique-keyed
 database insert). The libraries' in-memory store is correct for one instance only and must be asked for explicitly.

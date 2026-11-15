@@ -337,6 +337,86 @@ function signer(kid: string) {
   };
 }
 
+test("clock samples and replay retention fail as operational errors", async (t) => {
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const claims = JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8"));
+  const key = signer("clock-boundary");
+  const request = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url") };
+  const make = (clock: () => number) => {
+    const store = new InMemoryReplayStore({ singleInstance: true });
+    const writes: [string, number, number][] = [];
+    let fetches = 0;
+    const v = new Verifier({
+      ...manifest.config, clock,
+      fetchDocument: async (url) => {
+        fetches++;
+        const r = c.fetches[url][0];
+        const body = url === jwksUrl ? { keys: [key.jwk] } : r.body;
+        return { status: r.status, cacheControl: r.cache_control ?? null, body: JSON.stringify(body) };
+      },
+      replayStore: {
+        async setIfAbsent(k, ttl, at) {
+          writes.push([k, ttl, at]);
+          return store.setIfAbsent(k, ttl, at);
+        },
+      },
+    });
+    return { v, writes, fetchCount: () => fetches };
+  };
+  const operational = (message: RegExp) => (e: unknown) =>
+    e instanceof Error && !(e instanceof VerificationError) && message.test(e.message);
+
+  for (const [index, bad] of [String(s.now) as unknown as number, Infinity, NaN].entries()) {
+    await t.test(`clock sample ${index + 1}`, async () => {
+      let read = 0;
+      const h = make(() => read++ === index ? bad : s.now);
+      const signed = index === 2 ? { ...claims, iat: s.now - 180, exp: s.now - 61 } : claims;
+      await assert.rejects(h.v.verify({ ...request, assertion: key.sign(signed) }), operational(/clock/));
+      assert.equal(read, index + 1);
+      assert.equal(h.fetchCount(), index === 0 ? 0 : 2);
+      assert.deepEqual(h.writes, []);
+    });
+  }
+  await t.test("clock exception is preserved", async () => {
+    const failure = new Error("clock unavailable");
+    const h = make(() => { throw failure; });
+    await assert.rejects(h.v.verify({ ...request, assertion: key.sign(claims) }), (e) => e === failure);
+    assert.deepEqual(h.writes, []);
+  });
+  await t.test("same-clock replay cutoff must have a representable later expiry", async () => {
+    const limit = 2 ** 53;
+    let now = limit;
+    const h = make(() => now);
+    const req = { ...request, assertion: key.sign({ ...claims, iat: limit - 120, exp: limit - 60 }) };
+    const replies = [];
+    for (let copy = 0; copy < 2; copy++) {
+      const [reply] = await Promise.allSettled([h.v.verify(req)]);
+      replies.push(reply);
+    }
+    assert.deepEqual(replies.map(({ status }) => status), ["rejected", "rejected"]);
+    for (const reply of replies) {
+      assert.ok(reply.status === "rejected" && operational(/replay expiry/)(reply.reason));
+    }
+    assert.deepEqual(h.writes, []);
+    now = limit - 1;
+    const usable = { ...request, assertion: key.sign({ ...claims, iat: now - 120, exp: now - 60 }) };
+    assert.deepEqual(await h.v.verify(usable), s.expect.identity);
+    assert.deepEqual(h.writes.map(([, ttl, at]) => [ttl, at]), [[1, now]]);
+    await assert.rejects(h.v.verify(usable), { name: "VerificationError", code: "replay" });
+  });
+  await t.test("finite fractional clock preserves replay operands and behavior", async () => {
+    const now = s.now + 0.25;
+    let read = 0;
+    const h = make(() => { read++; return now; });
+    const req = { ...request, assertion: key.sign(claims) };
+    assert.deepEqual(await h.v.verify(req), s.expect.identity);
+    assert.equal(read, 3);
+    assert.deepEqual(h.writes, [[`${manifest.config.issuer}\u0000${claims.jti}`, claims.exp + 60 - now + 1, now]]);
+    await assert.rejects(h.v.verify(req), { name: "VerificationError", code: "replay" });
+  });
+});
+
 test("caller body encoding preserves first refusal and exact bytes", async () => {
   const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
   const s = c.steps[0];
