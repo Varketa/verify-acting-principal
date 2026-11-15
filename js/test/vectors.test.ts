@@ -102,6 +102,98 @@ for (const set of SETS) {
   }
 }
 
+for (const scenario of [
+  { name: "timely metadata and keys", metadataMs: 9999, keysMs: 9999, code: null, fetches: 2 },
+  { name: "late metadata", metadataMs: 10001, keysMs: 0, code: "jwks_unavailable", fetches: 1 },
+  { name: "keys at the deadline", metadataMs: 9999, keysMs: 10000, code: "jwks_unavailable", fetches: 2 },
+]) {
+  test(`default discovery completion: ${scenario.name}`, async (t) => {
+    const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+    const step = c.steps[0];
+    const metadata = `${manifest.config.issuer}/.well-known/varketa-acting-principal`;
+    const jwks = `${metadata}/jwks.json`;
+    let now = 0;
+    let lastFetchStartedAt = 0;
+    let replayAt: number | undefined;
+    const urls: string[] = [];
+    const options: (RequestInit | undefined)[] = [];
+    const signals: boolean[] = [];
+    t.mock.method(performance, "now", () => now);
+    t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      lastFetchStartedAt = now;
+      urls.push(url);
+      options.push(init);
+      const response = c.fetches[url][0];
+      const elapsed = url === metadata ? scenario.metadataMs : scenario.keysMs;
+      const body = async function* () {
+        yield Buffer.from(JSON.stringify(response.body));
+        now += elapsed;
+        signals.push(init?.signal?.aborted ?? true);
+      };
+      return { status: response.status, headers: { get: () => {
+        // The promise consumer resumes late even though the full SDK document is ready on time.
+        if (scenario.code === null) queueMicrotask(() => { now += 2; });
+        return response.cache_control ?? null;
+      } },
+        body: body() } as unknown as Response;
+    });
+    const replay = new InMemoryReplayStore({ singleInstance: true });
+    const v = new Verifier({
+      ...manifest.config,
+      clock: () => step.now,
+      replayStore: { setIfAbsent: (...args) => {
+        replayAt = now;
+        return replay.setIfAbsent(...args);
+      } },
+    });
+    const result = await v.verify({
+      method: step.request.method, url: step.request.url,
+      body: Buffer.from(step.request.body_b64url, "base64url"), assertion: step.assertion,
+    }).catch((error: unknown) => {
+      if (!(error instanceof VerificationError)) throw error;
+      return error.code;
+    });
+    const replayElapsed = replayAt === undefined ? null : replayAt - lastFetchStartedAt;
+    t.diagnostic(JSON.stringify({ result, urls, signals, replayElapsed }));
+    assert.deepEqual(result, scenario.code ?? step.expect.identity);
+    assert.deepEqual(urls, [metadata, jwks].slice(0, scenario.fetches));
+    assert.deepEqual(options.map((init) => init?.redirect), Array(scenario.fetches).fill("error"));
+    assert.deepEqual(signals, Array(scenario.fetches).fill(false));
+    assert.equal(replayElapsed, scenario.code === null ? 10001 : null);
+  });
+}
+
+for (const [elapsed, expected] of [
+  [10000, []],
+  [9999, ["timer:1", "metadata"]],
+] as const) {
+  test(`default discovery dispatch: ${elapsed} ms already elapsed`, async (t) => {
+    const metadata = `${manifest.config.issuer}/.well-known/varketa-acting-principal`;
+    const events: string[] = [];
+    let reads = 0;
+    t.mock.method(performance, "now", () => reads++ === 0 ? 0 : elapsed);
+    t.mock.method(AbortSignal, "timeout", (ms: number) => {
+      events.push(`timer:${ms}`);
+      return new AbortController().signal;
+    });
+    t.mock.method(globalThis, "fetch", async (url: string) => {
+      events.push(url === metadata ? "metadata" : url);
+      throw new Error("inert transport failed");
+    });
+    const v = new Verifier({
+      ...manifest.config,
+      clock: () => 0,
+      replayStore: { setIfAbsent: async () => assert.fail("discovery failure reached replay") },
+    });
+    const header = Buffer.from(JSON.stringify({ typ: "varketa-acting-principal+jwt", alg: "EdDSA", kid: "test" }));
+    await assert.rejects(v.verify({
+      method: "GET", url: manifest.config.audience, body: "", assertion: `${header.toString("base64url")}.e30.AAAA`,
+    }), (error: unknown) => error instanceof VerificationError && error.code === "jwks_unavailable");
+    t.diagnostic(JSON.stringify({ elapsed, events }));
+    assert.deepEqual(events, expected);
+  });
+}
+
 test("shared discovery and key boundaries", async (t) => {
   type DiscoveryStep = Pick<Step, "now"> & {
     label: string;

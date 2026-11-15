@@ -606,6 +606,145 @@ class Vectors(unittest.TestCase):
                     self.assertRaisesRegex(ValueError, "over 65536 bytes"):
                 vap._default_fetch("https://issuer.example/jwks.json")
 
+    def test_default_fetch_checks_completion_in_the_worker(self) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+        import varketa_verify_acting_principal as vap
+
+        cases = (
+            ("late EOF", 11, 11, TimeoutError),
+            ("late response close", 9, 11, TimeoutError),
+            ("exact deadline", 9, 10, TimeoutError),
+            ("timely worker observed late", 8, 9, None),
+            ("timely error observed late", 8, 9, OSError),
+            ("process-control error", 8, 9, KeyboardInterrupt),
+        )
+        for name, eof, closed, expected in cases:
+            with self.subTest(case=name):
+                now = 0
+                events = []
+                original_error = expected("worker failure") if expected in (OSError, KeyboardInterrupt) else None
+
+                class Answer:
+                    status, headers = 200, Message()
+
+                    def __enter__(self):
+                        return self
+
+                    def read1(self, _size):
+                        nonlocal now
+                        if events[-1] == "open":
+                            events.append("body")
+                            return b'{"keys":[]}'
+                        now = eof
+                        events.append("EOF")
+                        return b""
+
+                    def __exit__(self, *_):
+                        nonlocal now
+                        now = closed
+                        events.append("close")
+                        if original_error is not None:
+                            raise original_error
+                        return False
+
+                def open_response(_request, *, timeout):
+                    self.assertEqual(timeout, 10)
+                    events.append("open")
+                    return Answer()
+
+                class Worker:
+                    # Complete the worker before the caller can inspect its liveness.
+                    def __init__(self, *, target, name, daemon):
+                        if name != "varketa-verify-fetch" or not daemon:
+                            raise AssertionError("expected the default fetch daemon worker")
+                        self.target = target
+
+                    def start(self):
+                        events.append("start")
+
+                    def join(self, timeout):
+                        nonlocal now
+                        if timeout != 10:
+                            raise AssertionError("caller did not join for the remaining budget")
+                        self.target()
+                        now = 12
+                        events.append("join returned")
+
+                    def is_alive(self):
+                        return False
+
+                with mock.patch.object(vap, "_FETCH_TIMEOUT", 10), \
+                        mock.patch.object(vap, "time", SimpleNamespace(monotonic=lambda: now)), \
+                        mock.patch.object(vap, "threading", SimpleNamespace(Thread=Worker)), \
+                        mock.patch.object(vap.urllib.request, "build_opener",
+                                          return_value=SimpleNamespace(open=open_response)):
+                    if expected is None:
+                        self.assertEqual(vap._default_fetch(JWKS).body, b'{"keys":[]}')
+                    else:
+                        with self.assertRaises(expected) as caught:
+                            vap._default_fetch(JWKS)
+                        if original_error is not None:
+                            self.assertIs(caught.exception, original_error)
+                    self.assertEqual(events, ["start", "open", "body", "EOF", "close", "join returned"])
+
+    def test_default_fetch_reads_ready_outcome_without_worker_retirement(self) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+        import varketa_verify_acting_principal as vap
+
+        document = FetchedDocument(200, "max-age=60", b'{"keys":[]}')
+        for name, published in (
+            ("ready document, worker alive", document),
+            ("not ready, worker alive", None),
+            ("ready ordinary error, worker alive", OSError("acquisition failed")),
+            ("ready control error, worker alive", KeyboardInterrupt("interrupted")),
+        ):
+            with self.subTest(case=name):
+                now = 0
+                waits = []
+                completed = []
+
+                def fetch(_url, _deadline):
+                    if published is None:
+                        self.fail("the worker should still be fetching")
+                    if isinstance(published, BaseException):
+                        raise published
+                    return published
+
+                class Worker:
+                    def __init__(self, *, target, name, daemon):
+                        self.target = target
+
+                    def start(self):
+                        pass
+
+                    def join(self, timeout):
+                        nonlocal now
+                        waits.append(timeout)
+                        if published is not None:
+                            now = 9
+                            self.target()
+                            completed.append(now)
+                        now = 10
+
+                    def is_alive(self):
+                        return True
+
+                with mock.patch.object(vap, "_FETCH_TIMEOUT", 10), \
+                        mock.patch.object(vap, "time", SimpleNamespace(monotonic=lambda: now)), \
+                        mock.patch.object(vap, "threading", SimpleNamespace(Thread=Worker)), \
+                        mock.patch.object(vap, "_fetch_until", fetch):
+                    if published is document:
+                        self.assertIs(vap._default_fetch(JWKS), document)
+                    else:
+                        with self.assertRaises(type(published) if published is not None else TimeoutError) as caught:
+                            vap._default_fetch(JWKS)
+                        if published is not None:
+                            self.assertIs(caught.exception, published)
+                self.assertEqual(waits, [10])
+                self.assertEqual(completed, [9] if published is not None else [])
+
     def test_a_verify_whose_key_is_cached_never_waits_behind_a_slow_fetch(self) -> None:
         # The discovery runs outside the verifier's lock: while one verify waits on the refetch an unknown kid starts,
         # another whose key is cached and fresh is answered at once.

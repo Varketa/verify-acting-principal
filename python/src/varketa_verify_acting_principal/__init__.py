@@ -17,6 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from queue import Empty, SimpleQueue
 from typing import Any, Callable, Optional, Protocol, Union
 
 from cryptography.exceptions import InvalidSignature
@@ -117,29 +118,37 @@ def _default_fetch(url: str) -> FetchedDocument:
     """Fetch one discovery document: no redirect, at most 64 KiB, with a 10 s caller deadline (SPEC §2.5).
 
     urllib's own timeout bounds each socket operation, not the fetch, so an answer that arrives a few bytes at a time
-    would never end. The caller waits on a daemon worker for the remaining deadline and raises if it is still alive.
-    The worker is not cancelled; it also checks this deadline between reads. Its completion depends on lower-layer
-    open/read/response-close operations returning. urllib's normal proxy handling is kept.
+    would never end. The caller waits on a daemon worker for the remaining deadline and raises if no outcome is ready.
+    The worker is not cancelled; it checks the deadline between reads and before publishing a completed document.
+    Its completion depends on lower-layer open/read/response-close operations returning. urllib's normal proxy
+    handling is kept.
     """
     if not url.startswith("https://"):
         raise ValueError(f"{url}: not an https URL")
     deadline = time.monotonic() + _FETCH_TIMEOUT
-    result: dict[str, Any] = {}
+    result: SimpleQueue[FetchedDocument | BaseException] = SimpleQueue()
 
     def run() -> None:
         try:
-            result["document"] = _fetch_until(url, deadline)
+            outcome: FetchedDocument | BaseException = _fetch_until(url, deadline)
+            # Only the worker can distinguish a late response from delayed observation by the caller.
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s")
         except BaseException as e:  # noqa: BLE001 - handed to the caller, which fails closed
-            result["error"] = e
+            outcome = e
+        result.put(outcome)
 
     worker = threading.Thread(target=run, name="varketa-verify-fetch", daemon=True)
     worker.start()
     worker.join(max(0.0, deadline - time.monotonic()))
-    if worker.is_alive():
-        raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s")
-    if "error" in result:
-        raise result["error"]
-    return result["document"]
+    # Take the outcome once without waiting for worker teardown.
+    try:
+        outcome = result.get_nowait()
+    except Empty:
+        raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s") from None
+    if isinstance(outcome, BaseException):
+        raise outcome
+    return outcome
 
 
 def _fetch_until(url: str, deadline: float) -> FetchedDocument:
