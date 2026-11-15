@@ -17,7 +17,10 @@ A verifier REQUIRES three settings and refuses to start without any of them:
   `https://app.dev.varketa.ai` is Varketa's development issuer, for building against Varketa's development
   deployment. It is NOT production: configure it only on a development or test instance of your API, never on the one
   your customers use. Its keys are discovered the same way (§2), from
-  `https://app.dev.varketa.ai/.well-known/varketa-acting-principal`.
+  `https://app.dev.varketa.ai/.well-known/varketa-acting-principal`. Configure the exact published issuer spelling.
+  The Python SDK rejects percent-escaped DNS hostnames, scope identifiers and noncanonical spellings in
+  ordinary IPv6 literals, and numeric final labels outside canonical dotted-decimal IPv4. Earlier Python
+  SDK versions could accept these issuer spellings at construction.
 - **adopter**: your API's adopter id, shown on Varketa's Tool sources page.
 - **audience**: your API's own origin (`https://host[:port]`), the `aud` Varketa signs.
 

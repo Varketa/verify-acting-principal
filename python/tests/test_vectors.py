@@ -95,6 +95,45 @@ class Vectors(unittest.TestCase):
                         if want.get("jwks_fetches"):
                             self.assertEqual(h.counts.get(jwks), want["jwks_fetches"], f"step {i} key-set fetches")
 
+    def test_issuer_origin_configuration_refuses_host_aliases(self) -> None:
+        cfg = MANIFEST["config"]
+        fetches: list[str] = []
+
+        def fetch(url: str) -> FetchedDocument:
+            fetches.append(url)
+            self.fail("the constructor fetched a document")
+
+        options = dict(adopter=cfg["adopter"], audience=cfg["audience"], fetch_document=fetch,
+                       replay_store=InMemoryReplayStore(single_instance=True))
+        for origin in (
+            "https://127.1", "https://0177.0.0.1", "https://0x7f000001",
+            "https://example.127", "https://example.0x", "https://127.0.0.1.",
+            "https://%65xample.test", "https://[2001:0db8:0:0:0:0:0:1]",
+            "https://[fe80::1%25en0]",
+        ):
+            with self.subTest(issuer=origin), self.assertRaisesRegex(ValueError, "issuer.*https:// origin"):
+                Verifier(issuer=origin, **options)
+        for origin in (
+            "https://127.0.0.1", "https://[2001:db8::1]", "https://example.test",
+            "https://1.example.test:8443", "https://example.123x",
+            "https://api.varketa.ai", "https://app.dev.varketa.ai",
+            "https://[::ffff:192.0.2.1]", "https://[::ffff:c000:201]", "https://[::ffff:c000:201%25en0]",
+        ):
+            with self.subTest(issuer=origin):
+                Verifier(issuer=origin, **options)
+        self.assertEqual(fetches, [])
+
+    def test_signed_issuer_origin_comparison_is_literal(self) -> None:
+        harness, step, sign = _signing_harness()
+        issuer = MANIFEST["config"]["issuer"]
+        alias = issuer.replace("issuer", "%69ssuer", 1)
+        wrong = sign(lambda claims: claims.update(iss=alias))
+        good = sign(lambda claims: None)
+
+        self.assertEqual(harness.verify(dict(step, assertion=wrong)), (None, "iss"))
+        self.assertEqual(harness.verify(dict(step, assertion=good)), (step["expect"]["identity"], ""))
+        self.assertEqual(harness.counts, {issuer + "/.well-known/varketa-acting-principal": 1, JWKS: 1})
+
     def test_shared_discovery_and_key_boundaries(self) -> None:
         path = VECTORS.parent / "testdata" / "discovery-and-key-boundaries.json"
         fixture = json.loads(path.read_bytes())
