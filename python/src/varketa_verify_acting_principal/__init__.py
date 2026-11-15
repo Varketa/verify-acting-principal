@@ -44,6 +44,7 @@ _MAX_CACHE = 300
 _REFETCH_INTERVAL = 60
 _FETCH_TIMEOUT = 10
 _MAX_DOCUMENT_BYTES = 64 * 1024
+_MAX_ASSERTION_DEPTH = 32
 _B64URL = re.compile(r"[A-Za-z0-9_-]*")
 
 
@@ -194,6 +195,28 @@ def _integer(literal: str) -> Any:
     return int(literal)
 
 
+def _has_bounded_assertion_depth(text: str) -> bool:
+    # Bound native parser nesting. The native parser still checks JSON syntax.
+    depth = 0
+    in_string = False
+    chars = iter(text)
+    for ch in chars:
+        if in_string:
+            if ch == "\\":
+                next(chars, None)
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+            if depth > _MAX_ASSERTION_DEPTH:
+                return False
+        elif ch in "}]":
+            depth -= 1
+    return True
+
+
 def _has_scalar_escapes(text: str) -> bool:
     # Scan valid JSON source so a duplicate name cannot hide a malformed earlier value.
     # Every backslash begins an escape inside a string.
@@ -220,9 +243,11 @@ def _has_scalar_escapes(text: str) -> bool:
 def _object(b: bytes, *, assertion: bool = False) -> dict[str, Any]:
     try:
         text = b.decode("utf-8")
+        if assertion and not _has_bounded_assertion_depth(text):
+            raise VerificationError("malformed")
         v = json.loads(text, parse_constant=_no_constant, parse_int=_integer)
     except (ValueError, UnicodeDecodeError, RecursionError) as e:
-        # RecursionError: JSON nested past the interpreter's limit, which an unsigned header can be.
+        # RecursionError: parsing ran into the interpreter's own recursion guard.
         raise VerificationError("malformed") from e
     if not isinstance(v, dict) or (assertion and not _has_scalar_escapes(text)):
         raise VerificationError("malformed")

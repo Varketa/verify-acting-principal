@@ -18,6 +18,7 @@ const MAX_CACHE = 300;
 const REFETCH_INTERVAL = 60;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
+const MAX_ASSERTION_DEPTH = 32;
 export const METADATA_PATH = "/.well-known/varketa-acting-principal";
 
 /** One code per refusal, in the spec's order. */
@@ -122,6 +123,26 @@ function b64url(s: string): Buffer {
   return Buffer.from(s, "base64url");
 }
 
+// Bound native parser nesting. The native parser still checks JSON syntax.
+function hasBoundedAssertionDepth(text: string): boolean {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === "{" || ch === "[") {
+      if (++depth > MAX_ASSERTION_DEPTH) return false;
+    } else if (ch === "}" || ch === "]") {
+      depth--;
+    }
+  }
+  return true;
+}
+
 // After JSON syntax validation, every backslash begins an escape inside a string.
 // Scan the source so a duplicate name cannot hide a malformed earlier value.
 function hasScalarEscapes(text: string): boolean {
@@ -146,6 +167,7 @@ function hasScalarEscapes(text: string): boolean {
 function json(b: Buffer, kind: "document" | "assertion" = "document"): Record<string, unknown> {
   try {
     const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(b);
+    if (kind === "assertion" && !hasBoundedAssertionDepth(text)) throw new Error();
     const v = JSON.parse(text);
     if (v === null || typeof v !== "object" || Array.isArray(v)) throw new Error();
     if (kind === "assertion" && !hasScalarEscapes(text)) throw new Error();
