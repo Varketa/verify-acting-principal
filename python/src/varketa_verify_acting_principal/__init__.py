@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import ipaddress
 import json
 import math
 import re
@@ -49,6 +50,7 @@ _MAX_APPROVAL_LINKS = 8
 # Unicode 17.0 White_Space, pinned to keep the wire rule independent of runtime strip behavior.
 _NON_WHITESPACE = re.compile(r"[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]")
 _B64URL = re.compile(r"[A-Za-z0-9_-]*")
+_NUMERIC_HOST_LABEL = re.compile(r"(?:[0-9]+|0x[0-9a-f]*)")
 
 
 class VerificationError(Exception):
@@ -287,6 +289,27 @@ def _public_key(jwk: dict[str, Any], alg: str) -> Any:
     return ec.EllipticCurvePublicNumbers(int.from_bytes(x, "big"), int.from_bytes(y, "big"), curve()).public_key()
 
 
+def _has_issuer_host_alias(host: str) -> bool:
+    if ":" in host:
+        try:
+            address = ipaddress.IPv6Address(host)
+        except ipaddress.AddressValueError:
+            # The general origin check owns non-IPv6 bracketed syntax.
+            return False
+        # Keep mapped addresses outside this check. Their string form differs by Python version.
+        return address.ipv4_mapped is None and (address.scope_id is not None or address.compressed != host)
+    if "%" in host:
+        return True
+    # A numeric final label selects IPv4 parsing, even before a trailing root dot.
+    # Validate the original host as strict dotted decimal without replacing it.
+    if _NUMERIC_HOST_LABEL.fullmatch(host.removesuffix(".").rsplit(".", 1)[-1]):
+        try:
+            ipaddress.IPv4Address(host)
+        except ipaddress.AddressValueError:
+            return True
+    return False
+
+
 class Verifier:
     def __init__(self, *, issuer: str, adopter: str, audience: str, replay_store: ReplayStore,
                  clock: Optional[Callable[[], int]] = None,
@@ -311,6 +334,8 @@ class Verifier:
                          + (f":{port}" if port not in (None, 443) else ""))
             if not host.isascii() or canonical != value:
                 raise ValueError(f"verify-acting-principal: {name} must be an https:// origin")
+            if name == "issuer" and _has_issuer_host_alias(host):
+                raise ValueError("verify-acting-principal: issuer must be an https:// origin with a canonical host")
         self._issuer, self._adopter, self._audience, self._store = issuer, adopter, audience, replay_store
         self._clock = clock or (lambda: int(time.time()))
         self._fetch = fetch_document or _default_fetch
