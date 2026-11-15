@@ -474,7 +474,8 @@ class Verifier:
         raw = body if isinstance(body, str) else bytes(body)
         if s("iss") != self._issuer:
             raise VerificationError("iss")
-        if n("ver") not in SUPPORTED_VERSIONS:
+        ver = n("ver")
+        if ver is None or ver not in SUPPORTED_VERSIONS:
             raise VerificationError("ver")
         if s("adopter") != self._adopter:
             raise VerificationError("adopter")
@@ -512,10 +513,13 @@ class Verifier:
                     or not isinstance(v.get("sub"), str) or not v["sub"]):
                 raise VerificationError("malformed")
             sub_id = {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
+        act_kind = s("act_kind")
+        if ver < 5 and act_kind in ("discovery", "on_behalf"):
+            raise VerificationError("malformed")
         # A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
         # carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
         actor: Optional[dict[str, str]] = None
-        if ("act" in c) != (s("act_kind") == "on_behalf"):
+        if ("act" in c) != (act_kind == "on_behalf"):
             raise VerificationError("malformed")
         if "act" in c:
             v = c["act"]

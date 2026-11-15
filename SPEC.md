@@ -66,7 +66,7 @@ be an integer excluding booleans. An invalid sample is an operational error. The
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `discovery` and `on_behalf` require claim set 5 or later; `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 The protected header and claims each have a maximum JSON depth of 32, counting the root object as level 1.
@@ -105,6 +105,9 @@ An accepted assertion exposes:
 - `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`, and from claim set 5
   `discovery` and `on_behalf`, below), `presence` (`delegated`, `interactive`, `confirmed`), `run_id` (absent on a
   person's own act), `approved_by`.
+  For an accepted claim-set version earlier than 5, `act_kind: "discovery"` or `act_kind: "on_behalf"` is
+  refused as `malformed` at check 17 before replay. An absent `act_kind` in claim set 3 or 4 remains allowed
+  when the other checks pass. Check 8 still refuses any unsupported version before this check.
 - `act_kind` `discovery` (claim set 5): Varketa reading your API's own surface, such as an MCP `tools/list` or your
   OpenAPI document, to learn what it offers. It names no tool and no run. Its `sub` is `varketa-discovery` when no
   grant made the request; otherwise `grant` names the grant. Act on no customer's data for it.

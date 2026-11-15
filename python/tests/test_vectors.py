@@ -135,6 +135,17 @@ class Vectors(unittest.TestCase):
                     self.assertEqual(identity, want.get("identity"))
                     self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
 
+    def test_actor_kinds_respect_the_exact_shared_claim_set_boundaries(self) -> None:
+        for case in json.loads((VECTORS.parent / "testdata" / "actor-kind-versions.json").read_bytes()):
+            h = Harness(case)
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify(step)
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
+
     def test_clock_samples_fail_as_operational_errors(self) -> None:
         fixture, step, sign = _signing_harness()
         now = step["now"]
