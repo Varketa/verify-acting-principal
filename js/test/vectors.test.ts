@@ -102,6 +102,42 @@ for (const set of SETS) {
   }
 }
 
+test("shared discovery and key boundaries", async (t) => {
+  type DiscoveryStep = Pick<Step, "now"> & {
+    label: string;
+    input: string;
+    expect: Step["expect"] & { fetch_counts: Record<string, number> };
+  };
+  type Response = Case["fetches"][string][number];
+  const { inputs, responses, cases }: {
+    inputs: Record<string, Pick<Step, "request" | "assertion">>;
+    responses: Record<string, Response>;
+    cases: { name: string; fetches: Record<string, string[]>; steps: DiscoveryStep[] }[];
+  } = JSON.parse(readFileSync(join(vectors, "..", "testdata", "discovery-and-key-boundaries.json"), "utf8"));
+  assert.ok(cases.length > 0);
+  for (const c of cases) {
+    await t.test(c.name, async () => {
+      const fetches = Object.fromEntries(Object.entries(c.fetches).map(([url, names]) => [url, names.map((name) => {
+        assert.ok(Object.hasOwn(responses, name), name);
+        return responses[name];
+      })]));
+      const h = harness({ name: c.name, fetches, steps: [] });
+      for (const step of c.steps) {
+        h.setNow(step.now);
+        assert.ok(Object.hasOwn(inputs, step.input), step.input);
+        const { request: { method, url, body_b64url }, assertion } = inputs[step.input];
+        const result = h.v.verify({ method, url, body: Buffer.from(body_b64url, "base64url"), assertion });
+        if (step.expect.accept) {
+          assert.deepEqual(await result, step.expect.identity, step.label);
+        } else {
+          await assert.rejects(result, { name: "VerificationError", code: step.expect.code }, step.label);
+        }
+        assert.deepEqual(Object.fromEntries(h.counts), step.expect.fetch_counts, step.label);
+      }
+    });
+  }
+});
+
 test("with an atomic store, of two concurrent copies of one assertion exactly one is accepted", async () => {
   const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
   const h = harness(c);

@@ -95,6 +95,22 @@ class Vectors(unittest.TestCase):
                         if want.get("jwks_fetches"):
                             self.assertEqual(h.counts.get(jwks), want["jwks_fetches"], f"step {i} key-set fetches")
 
+    def test_shared_discovery_and_key_boundaries(self) -> None:
+        path = VECTORS.parent / "testdata" / "discovery-and-key-boundaries.json"
+        fixture = json.loads(path.read_bytes())
+        inputs, responses, cases = (fixture[key] for key in ("inputs", "responses", "cases"))
+        self.assertTrue(cases)
+        for case in cases:
+            fetches = {url: [responses[name] for name in names] for url, names in case["fetches"].items()}
+            h = Harness({"fetches": fetches})
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify({**inputs[step["input"]], "now": step["now"]})
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts, want["fetch_counts"])
+
     def test_assertion_json_scalar_escapes_use_exact_shared_signed_bytes(self) -> None:
         path = VECTORS.parent / "testdata" / "assertion-json-scalars.json"
         for case in json.loads(path.read_bytes()):
