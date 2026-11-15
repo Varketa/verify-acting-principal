@@ -63,6 +63,12 @@ its code is the first one it breaks.
 | 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
+In the protected header and claims objects, every member name and string value must contain only Unicode scalar values.
+This includes nested, unrecognized and superseded member occurrences. A surrogate escape is allowed only in an adjacent
+high–low pair. Such a pair and the equivalent literal UTF-8 character have the same decoded value. Compare names after
+decoding without normalization. After scalar validation, a repeated name selects its last value. Refuse an unpaired
+surrogate escape as `malformed` at check 1 for the header or at check 6 for claims after signature verification.
+
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.
 
 Supply the verifier with the exact request body bytes for check 16. Re-serializing JSON or converting the bytes
