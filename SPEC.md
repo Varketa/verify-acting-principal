@@ -63,6 +63,12 @@ its code is the first one it breaks.
 | 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
+The protected header and claims each have a maximum JSON depth of 32, counting the root object as level 1.
+Each nested object or array adds one level along its path, including empty containers and superseded members.
+Strings and other scalars add no levels. An assertion extension deeper than this is refused as
+`malformed` at check 1 for the header or at check 6 for claims after signature verification.
+This limit applies to assertion JSON. Fetched metadata and JWK Sets use the fetch limits in §2.
+
 In the protected header and claims objects, every member name and string value must contain only Unicode scalar values.
 This includes nested, unrecognized and superseded member occurrences. A surrogate escape is allowed only in an adjacent
 high–low pair. Such a pair and the equivalent literal UTF-8 character have the same decoded value. Compare names after
