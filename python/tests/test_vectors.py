@@ -135,6 +135,72 @@ class Vectors(unittest.TestCase):
                     self.assertEqual(identity, want.get("identity"))
                     self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
 
+    def test_clock_samples_fail_as_operational_errors(self) -> None:
+        fixture, step, sign = _signing_harness()
+        now = step["now"]
+        cfg = MANIFEST["config"]
+        req = step["request"]
+        request = dict(method=req["method"], url=req["url"], body=b64(req["body_b64url"]))
+        good = sign(lambda _: None)
+        expired = sign(lambda c: c.update(iat=now - 180, exp=now - 61))
+
+        class Store(InMemoryReplayStore):
+            def __init__(self) -> None:
+                super().__init__(single_instance=True)
+                self.writes = []
+
+            def set_if_absent(self, key, ttl_seconds, at):
+                self.writes.append((key, ttl_seconds, at))
+                return super().set_if_absent(key, ttl_seconds, at)
+
+        def make(clock):
+            fixture.counts.clear()
+            store = Store()
+            return Verifier(issuer=cfg["issuer"], adopter=cfg["adopter"], audience=cfg["audience"],
+                            replay_store=store, clock=clock, fetch_document=fixture.fetch), store
+
+        for index, bad in [(0, True), (1, float("inf")), (2, now + 0.25), (3, float("nan"))]:
+            with self.subTest(clock_sample=index + 1):
+                read = 0
+
+                def clock():
+                    nonlocal read
+                    read += 1
+                    return bad if read == index + 1 else now
+
+                v, store = make(clock)
+                with self.assertRaisesRegex(ValueError, "clock"):
+                    v.verify(**request, assertion=expired if index == 3 else good)
+                self.assertEqual(read, index + 1)
+                self.assertEqual(sum(fixture.counts.values()), 0 if index == 0 else 2)
+                self.assertEqual(store.writes, [])
+
+        failure = RuntimeError("clock unavailable")
+
+        def failed_clock():
+            raise failure
+
+        v, store = make(failed_clock)
+        with self.assertRaises(RuntimeError) as fault:
+            v.verify(**request, assertion=good)
+        self.assertIs(fault.exception, failure)
+        self.assertEqual(store.writes, [])
+
+        reads = []
+
+        def healthy_clock():
+            reads.append(now)
+            return now
+
+        v, store = make(healthy_clock)
+        self.assertEqual(v.verify(**request, assertion=good), step["expect"]["identity"])
+        self.assertEqual(reads, [now] * 4)
+        claims = json.loads(b64(good.split(".")[1]))
+        self.assertEqual(store.writes, [(cfg["issuer"] + "\0" + claims["jti"], claims["exp"] + 60 - now + 1, now)])
+        with self.assertRaises(VerificationError) as replay:
+            v.verify(**request, assertion=good)
+        self.assertEqual(replay.exception.code, "replay")
+
     def test_of_two_concurrent_copies_exactly_one_is_accepted(self) -> None:
         case = json.loads((DIR / "cases" / "good.json").read_text())
         h = Harness(case)

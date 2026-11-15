@@ -35,7 +35,10 @@ identity = verifier.verify(method=request.method, url=full_url, body=raw_body,
                            assertion=request.headers.get("Varketa-Acting-Principal"))
 ```
 
-A refusal raises `VerificationError` with one code from SPEC.md §3. Answer it with 401 or 403.
+A verification refusal raises `VerificationError` with a code from SPEC.md §3. Handle it as an authentication or
+authorization refusal. Other failures can propagate from configuration, the runtime or adopter callbacks, including
+the replay store. Verification returns no identity on these failures. Handle them as operational errors and keep
+internal details out of the response. A replay-store exception may leave the result of its write unknown.
 
 To build against Varketa's development deployment, configure `issuer` `https://app.dev.varketa.ai` instead, on a
 development or test instance of your API only. It is NOT production ([SPEC §1](https://github.com/Varketa/verify-acting-principal/blob/main/SPEC.md#1-configure)).

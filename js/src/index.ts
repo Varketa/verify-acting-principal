@@ -46,6 +46,7 @@ export type FetchDocument = (url: string) => Promise<FetchedDocument>;
  * The replay record. `setIfAbsent` inserts `key` with a time to live and reports whether THIS call inserted it, in one
  * atomic step: of two concurrent calls with one key, exactly one returns true. Never implement it as a read followed
  * by a write.
+ * Return false only for a conflict. Throw if the result is unknown, including when a write loses its acknowledgement.
  */
 export interface ReplayStore { setIfAbsent(key: string, ttlSeconds: number, now: number): Promise<boolean> }
 
@@ -79,7 +80,7 @@ export interface Options {
   audience: string;
   /** Required: no silent default (see InMemoryReplayStore). */
   replayStore: ReplayStore;
-  /** Seconds since the epoch. Defaults to the system clock. */
+  /** Finite seconds since the epoch. Defaults to the system clock. */
   clock?: () => number;
   fetchDocument?: FetchDocument;
   /** Maps the URL as received to the URL the caller sent, after this API's own proxies. Defaults to identity. */
@@ -264,9 +265,15 @@ export class Verifier {
     }
   }
 
-  /** Verifies one request's assertion and returns the identity to authorize against, or throws VerificationError. */
-  async verify(req: Request): Promise<Identity> {
+  #readClock(): number {
     const now = this.#clock();
+    if (!Number.isFinite(now)) throw new Error("verify-acting-principal: clock must return finite epoch seconds");
+    return now;
+  }
+
+  /** Returns the verified identity. Ordered refusals use VerificationError. Callback and store errors may propagate. */
+  async verify(req: Request): Promise<Identity> {
+    const now = this.#readClock();
     const parts = (req.assertion ?? "").split(".");
     if (parts.length !== 3) throw new VerificationError("malformed");
     const header = json(b64url(parts[0]), "assertion");
@@ -289,7 +296,7 @@ export class Verifier {
       if (await this.#load(now)) jwk = this.#keys?.get(kid);
     }
     // A network wait may itself consume the documents' positive cache lifetime.
-    const keyAt = this.#clock();
+    const keyAt = this.#readClock();
     if ((this.#mdMaxAge > 0 && keyAt - this.#mdFetchedAt >= this.#mdMaxAge) ||
         (this.#maxAge > 0 && keyAt - this.#fetchedAt >= this.#maxAge)) throw new VerificationError("jwks_unavailable");
     if (!jwk) throw new VerificationError("kid");
@@ -315,7 +322,7 @@ export class Verifier {
     if (!ok) throw new VerificationError("signature");
     const c = json(b64url(parts[1]), "assertion");
     // The clock again, after any key-set wait: the time checks and the replay record's lifetime use it.
-    const at = this.#clock();
+    const at = this.#readClock();
     const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);
     // Integers only: a fractional ver, iat or exp is not truncated to a known value; it is absent.
     const num = (k: string) => (Number.isSafeInteger(c[k]) ? (c[k] as number) : undefined);
@@ -364,8 +371,14 @@ export class Verifier {
     const hasApproval = Object.hasOwn(c, "approved_by");
     if (hasApproval && !isApprovalChain(c.approved_by)) throw new VerificationError("malformed");
     // LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
-    // The record lives through the last accepted second, exp + 60 s inclusive: a whole number of seconds, at least 1.
-    if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, exp + SKEW - at + 1, at))) {
+    // The exclusive expiry must lie past the inclusive cutoff, including when floating-point addition rounds.
+    const cutoff = exp + SKEW;
+    const ttl = cutoff - at + 1;
+    const expiry = at + ttl;
+    if (!Number.isFinite(ttl) || !Number.isFinite(expiry) || expiry <= cutoff) {
+      throw new Error("verify-acting-principal: replay expiry cannot outlast the assertion");
+    }
+    if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, ttl, at))) {
       throw new VerificationError("replay");
     }
     const id: Identity = { tenant, adopter: this.#o.adopter };
