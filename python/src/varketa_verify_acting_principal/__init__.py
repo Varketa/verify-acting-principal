@@ -396,8 +396,7 @@ class Verifier:
             return v
 
         iat, exp = n("iat"), n("exp")
-        raw = body.encode() if isinstance(body, str) else bytes(body)
-        bdy = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
+        raw = body if isinstance(body, str) else bytes(body)
         if s("iss") != self._issuer:
             raise VerificationError("iss")
         if n("ver") not in SUPPORTED_VERSIONS:
@@ -416,6 +415,12 @@ class Verifier:
             raise VerificationError("htm")
         if s("htu") != self._request_url(url):
             raise VerificationError("htu")
+        if isinstance(raw, str):
+            try:
+                raw = str.encode(raw)
+            except UnicodeEncodeError:
+                raise VerificationError("bdy") from None
+        bdy = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
         if s("bdy") != bdy:
             raise VerificationError("bdy")
         jti, tenant = s("jti"), s("tenant")

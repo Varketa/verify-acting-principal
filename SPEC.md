@@ -66,7 +66,8 @@ its code is the first one it breaks.
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.
 
 Supply the verifier with the exact request body bytes for check 16. Re-serializing JSON or converting the bytes
-to text and back can change the hash. A caller-supplied string with an unpaired surrogate has no lossless UTF-8 encoding.
+to text and back can change the hash. For a caller-supplied string, encode it as UTF-8 without replacement. A string
+with an unpaired surrogate has no lossless UTF-8 encoding and is refused at check 16 with `bdy`.
 This concerns the request body supplied to the verifier, separate from JSON decoding of the signed assertion.
 
 Why `adopter` matters: `aud` is the origin a Varketa tenant registered, and any tenant can register any origin. So a

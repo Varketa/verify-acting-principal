@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { join } from "node:path";
 import { Verifier, InMemoryReplayStore, VerificationError, SUPPORTED_VERSIONS, type FetchedDocument } from "../src/index.ts";
 
@@ -27,11 +27,12 @@ interface Step {
 }
 interface Case { name: string; fetches: Record<string, { status: number; cache_control?: string; body?: unknown }[]>; steps: Step[] }
 
-function harness(c: Case, m = manifest) {
+function harness(c: Case, m = manifest, requestUrl?: (url: string) => string) {
   const counts = new Map<string, number>();
   let now = 0;
   const v = new Verifier({
     ...m.config,
+    requestUrl,
     replayStore: new InMemoryReplayStore({ singleInstance: true }),
     clock: () => now,
     fetchDocument: async (url: string): Promise<FetchedDocument> => {
@@ -271,6 +272,39 @@ function signer(kid: string) {
     },
   };
 }
+
+test("caller body encoding preserves first refusal and exact bytes", async () => {
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const claims = JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8"));
+  const text = "\uFFFD\u{1F9EA}";
+  claims.bdy = createHash("sha256").update(text, "utf8").digest("base64url");
+  const key = signer("caller-body");
+  (c.fetches[jwksUrl][0].body as { keys: unknown[] }).keys = [key.jwk];
+  const binary = Uint8Array.of(0xff, 0);
+  const alias = s.request.url + "/binary-alias";
+  const h = harness(c, manifest, (url) => {
+    if (url !== alias) return url;
+    binary[0] = 0xfe;
+    return s.request.url;
+  });
+  h.setNow(s.now);
+  const req = { method: s.request.method, url: s.request.url, assertion: key.sign(claims) };
+  const isCode = (code: string) => (err: unknown) => err instanceof VerificationError && err.code === code;
+
+  for (const body of ["\uD800\u{1F9EA}", "\uDC00\u{1F9EA}"]) {
+    await assert.rejects(h.v.verify({ ...req, body }), isCode("bdy"));
+  }
+  const body = "\uD800\u{1F9EA}";
+  await assert.rejects(h.v.verify({ ...req, body, url: req.url + "/wrong" }), isCode("htu"));
+  await assert.rejects(h.v.verify({ ...req, body, assertion: key.sign({ ...claims, tenant: undefined }) }), isCode("bdy"));
+  assert.equal((await h.v.verify({ ...req, body: text })).tenant, claims.tenant);
+
+  const bdy = createHash("sha256").update(binary).digest("base64url");
+  const assertion = key.sign({ ...claims, bdy, jti: claims.jti + "-binary" });
+  assert.equal((await h.v.verify({ ...req, url: alias, body: binary, assertion })).tenant, claims.tenant);
+  assert.deepEqual(binary, Uint8Array.of(0xfe, 0));
+});
 
 // good's first step, its claims changed by change and signed again under a key the case's key set then carries.
 async function resigned(change: (claims: Record<string, unknown>) => void): Promise<{ code: string; identity?: Record<string, unknown> }> {

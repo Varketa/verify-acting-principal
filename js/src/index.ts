@@ -1,6 +1,7 @@
 // @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set versions 3, 4 and 5.
 // The normative half is ../../SPEC.md and ../../vectors/v5; this file follows the spec's order.
 import { createHash, createPublicKey, verify as verifySignature, type KeyObject } from "node:crypto";
+import { toUSVString } from "node:util";
 
 export const HEADER = "Varketa-Acting-Principal";
 export const TYP = "varketa-acting-principal+jwt";
@@ -258,7 +259,9 @@ export class Verifier {
     // Integers only: a fractional ver, iat or exp is not truncated to a known value; it is absent.
     const num = (k: string) => (Number.isSafeInteger(c[k]) ? (c[k] as number) : undefined);
     const iat = num("iat"), exp = num("exp");
-    const body = typeof req.body === "string" ? Buffer.from(req.body, "utf8") : Buffer.from(req.body);
+    // Snapshot caller-owned bytes before requestUrl can run. Judge text encoding at the body check.
+    const suppliedBody = req.body;
+    const body = typeof suppliedBody === "string" ? suppliedBody : Buffer.from(suppliedBody);
     if (str("iss") !== this.#o.issuer) throw new VerificationError("iss");
     if (!SUPPORTED_VERSIONS.includes(num("ver") ?? NaN)) throw new VerificationError("ver");
     if (str("adopter") !== this.#o.adopter) throw new VerificationError("adopter");
@@ -268,7 +271,9 @@ export class Verifier {
     if (exp - iat > MAX_LIFETIME) throw new VerificationError("lifetime");
     if (str("htm") !== req.method) throw new VerificationError("htm");
     if (str("htu") !== this.#requestUrl(req.url)) throw new VerificationError("htu");
-    if (str("bdy") !== createHash("sha256").update(body).digest("base64url")) throw new VerificationError("bdy");
+    if (typeof body === "string" && toUSVString(body) !== body) throw new VerificationError("bdy");
+    const raw = typeof body === "string" ? Buffer.from(body, "utf8") : body;
+    if (str("bdy") !== createHash("sha256").update(raw).digest("base64url")) throw new VerificationError("bdy");
     const jti = str("jti"), tenant = str("tenant");
     // The claims Varketa never omits and an API authorizes on: the jti, the tenant, and the subject or grant.
     if (!jti || !tenant || (!str("sub") && !str("grant"))) throw new VerificationError("malformed");

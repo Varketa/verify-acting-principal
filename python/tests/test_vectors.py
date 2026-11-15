@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import re
 import threading
@@ -214,6 +215,43 @@ class Vectors(unittest.TestCase):
         identity, code = _resigned(lambda c: c.update({f: float(c[f]) for f in ("ver", "iat", "exp")}))
         self.assertEqual(code, "")
         self.assertEqual(identity, json.loads((DIR / "cases" / "good.json").read_text())["steps"][0]["expect"]["identity"])
+
+    def test_caller_body_encoding_preserves_first_refusal_and_exact_bytes(self) -> None:
+        h, step, sign = _signing_harness()
+        h.now = step["now"]
+        request = step["request"]
+        text = "\ufffd\U0001f9ea"
+        digest = base64.urlsafe_b64encode(hashlib.sha256(text.encode()).digest()).rstrip(b"=").decode()
+        assertion = sign(lambda claims: claims.update(bdy=digest))
+
+        def verify(body, token=assertion, url=request["url"]):
+            return h.verifier.verify(method=request["method"], url=url, body=body, assertion=token)
+
+        for body in ("\ud800\U0001f9ea", "\udc00\U0001f9ea"):
+            with self.subTest(body=body):
+                with self.assertRaises(VerificationError) as exc:
+                    verify(body)
+                self.assertEqual(exc.exception.code, "bdy")
+
+        body = "\ud800\U0001f9ea"
+        with self.assertRaises(VerificationError) as exc:
+            verify(body, url=request["url"] + "/wrong")
+        self.assertEqual(exc.exception.code, "htu")
+
+        def omit_tenant(claims):
+            claims.update(bdy=digest)
+            claims.pop("tenant")
+
+        with self.assertRaises(VerificationError) as exc:
+            verify(body, sign(omit_tenant))
+        self.assertEqual(exc.exception.code, "bdy")
+        tenant = step["expect"]["identity"]["tenant"]
+        self.assertEqual(verify(text)["tenant"], tenant)
+
+        binary = b"\xff\x00"
+        bdy = base64.urlsafe_b64encode(hashlib.sha256(binary).digest()).rstrip(b"=").decode()
+        binary_assertion = sign(lambda claims: claims.update(bdy=bdy, jti=claims["jti"] + "-binary"))
+        self.assertEqual(verify(binary, binary_assertion)["tenant"], tenant)
 
     def test_a_present_sub_id_is_exactly_iss_sub(self) -> None:
         # Shapes no vector carries: a fourth member, null, an array, a non-string subject. And one sub_id on ver 3, which
