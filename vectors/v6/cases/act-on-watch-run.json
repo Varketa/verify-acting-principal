@@ -1,0 +1,67 @@
+{
+  "name": "act-on-watch-run",
+  "description": "act on a watch_run: only on_behalf names an actor.",
+  "fetches": {
+    "https://issuer.example/.well-known/varketa-acting-principal": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "issuer": "https://issuer.example",
+          "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+          "signing_alg_values_supported": [
+            "ES256",
+            "EdDSA"
+          ],
+          "ver_values_supported": [
+            4,
+            5,
+            6
+          ]
+        }
+      }
+    ],
+    "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "keys": [
+            {
+              "use": "sig",
+              "kty": "EC",
+              "kid": "v3-current",
+              "crv": "P-256",
+              "alg": "ES256",
+              "x": "KczrvPvJHomI3wyaOUKboMUSnkJzLEEqShaCUkFlz9I",
+              "y": "PrajkBB-jjuS10rKvkltJs0ZnMm77aPkb8BNFubFgAg"
+            },
+            {
+              "use": "sig",
+              "kty": "OKP",
+              "kid": "v3-previous",
+              "crv": "Ed25519",
+              "alg": "EdDSA",
+              "x": "8qsSAPdm3qVn9v8uHs1-48XVp3lU2FHfddO2sdBdIcQ"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "now": 1767225610,
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLWN1cnJlbnQiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3QiOnsiaXNzIjoiaHR0cHM6Ly9iYWNrZW5kLmFkb3B0ZXIuZXhhbXBsZSIsInN1YiI6ImJhY2tlbmQtYWRtaXNzaW9uLTEifSwiYWN0X2tpbmQiOiJ3YXRjaF9ydW4iLCJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiV2sxanVtZUZLY0NOcFlBeEQxX183Q3FaWVZwUk1EalFldHFjTXZFRXdPYyIsImV4cCI6MTc2NzIyNTcyMCwiZ3JhbnQiOiI1NTU1NTU1NS01NTU1LTQ1NTUtODU1NS01NTU1NTU1NTU1NTUiLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktYWN0LW9uLXdhdGNoLXJ1biIsInBlcnNvbmEiOiJzdXBwb3J0IiwicHJlc2VuY2UiOiJkZWxlZ2F0ZWQiLCJydW5faWQiOiI0NDQ0NDQ0NC00NDQ0LTQ0NDQtODQ0NC00NDQ0NDQ0NDQ0NDQiLCJydW5fb3duZXIiOnsic3ViIjoidXNlci03Iiwic3ViX2lkIjp7ImZvcm1hdCI6Imlzc19zdWIiLCJpc3MiOiJodHRwczovL2lkcC5hZG9wdGVyLmV4YW1wbGUiLCJzdWIiOiJjdXN0b21lci00MiJ9fSwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjo2fQ.Ss3n_YHTEtr3o6Petb4BWSWVxxsiP-MNMdB830a2dTZmQz2IS8jpIW6n6OLbrrrhZx7BZYf4yJ_4EgfO71qFmQ",
+      "expect": {
+        "accept": false,
+        "code": "malformed"
+      }
+    }
+  ]
+}

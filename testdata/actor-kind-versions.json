@@ -31,6 +31,12 @@
                 "crv": "Ed25519",
                 "kid": "actor-version-sdk-test",
                 "x": "43K13MTbSS3F4k3_XZPTKODD4kkX2A_tw4cF-HCZ7ko"
+              },
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "kid": "actor-version-cs6",
+                "x": "eN7ZQPyuSaH8bs4DzNlpNVLZla0n6EpYvsztuboiW4g"
               }
             ]
           }
@@ -91,7 +97,7 @@
           "url": "https://api.adopter.example/openapi-version-fixture.json",
           "body_b64url": ""
         },
-        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tc2RrLXRlc3QiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3Rfa2luZCI6ImRpc2NvdmVyeSIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiI0N0RFUXBqOEhCU2EtX1RJbVctNUpDZXVRZVJrbTVOTXBKV1pHM2hTdUZVIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJHRVQiLCJodHUiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUvb3BlbmFwaS12ZXJzaW9uLWZpeHR1cmUuanNvbiIsImlhdCI6MTc2NzIyNTYwMCwiaXNzIjoiaHR0cHM6Ly9pc3N1ZXIuZXhhbXBsZSIsImp0aSI6Im9uZSIsInBlcnNvbmEiOiJzdXBwb3J0IiwicHJlc2VuY2UiOiJpbnRlcmFjdGl2ZSIsInNjb3BlX2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGVzIjpbInJlY29yZHMucmVhZCIsInJlY29yZHMud3JpdGUiXSwic3ViIjoidmFya2V0YS1kaXNjb3ZlcnkiLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2ZXIiOjZ9.4DdCjuj-094Gfi8qv6PigCya1Sp60morM6-kz5zKqtt3i-dbJJp0vlV79kHYxKqdp-AN5nM1YxNOmQl9lHPIAQ",
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tY3M2IiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhY3Rfa2luZCI6ImRpc2NvdmVyeSIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiI0N0RFUXBqOEhCU2EtX1RJbVctNUpDZXVRZVJrbTVOTXBKV1pHM2hTdUZVIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJHRVQiLCJodHUiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUvb3BlbmFwaS12ZXJzaW9uLWZpeHR1cmUuanNvbiIsImlhdCI6MTc2NzIyNTYwMCwiaXNzIjoiaHR0cHM6Ly9pc3N1ZXIuZXhhbXBsZSIsImp0aSI6Im9uZSIsInBlcnNvbmEiOiJzdXBwb3J0IiwicHJlc2VuY2UiOiJpbnRlcmFjdGl2ZSIsInNjb3BlX2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGVzIjpbInJlY29yZHMucmVhZCIsInJlY29yZHMud3JpdGUiXSwic3ViIjoidmFya2V0YS1kaXNjb3ZlcnkiLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2ZXIiOjd9.BVzqoiizS14Fm9lxWFVkVMiwcW2aNO-ZNWGdJQO62xzt22DwLny-QQUerp-E03Py6nngpR8wovo9CXVQ6jtECQ",
         "expect": {
           "accept": false,
           "jwks_fetches": 1,
@@ -592,6 +598,143 @@
             "act": {
               "iss": "https://backend.adopter.example",
               "sub": "version-fence-admission"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "claim-set-6-kinds",
+    "fetches": {
+      "https://issuer.example/.well-known/varketa-acting-principal": [
+        {
+          "status": 200,
+          "cache_control": "public, max-age=300",
+          "body": {
+            "issuer": "https://issuer.example",
+            "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+            "signing_alg_values_supported": [
+              "ES256",
+              "EdDSA"
+            ],
+            "ver_values_supported": [
+              4,
+              5
+            ]
+          }
+        }
+      ],
+      "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+        {
+          "status": 200,
+          "cache_control": "public, max-age=300",
+          "body": {
+            "keys": [
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "kid": "actor-version-sdk-test",
+                "x": "43K13MTbSS3F4k3_XZPTKODD4kkX2A_tw4cF-HCZ7ko"
+              },
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "kid": "actor-version-cs6",
+                "x": "eN7ZQPyuSaH8bs4DzNlpNVLZla0n6EpYvsztuboiW4g"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "label": "v5 watch_run is malformed",
+        "now": 1767225610,
+        "request": {
+          "method": "GET",
+          "url": "https://api.adopter.example/openapi-version-fixture.json",
+          "body_b64url": ""
+        },
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tY3M2IiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiNDdERVFwajhIQlNhLV9USW1XLTVKQ2V1UWVSa201Tk1wSldaRzNoU3VGVSIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiR0VUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL29wZW5hcGktdmVyc2lvbi1maXh0dXJlLmpzb24iLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiZGVsZWdhdGVkIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2ZXIiOjUsImFjdF9raW5kIjoid2F0Y2hfcnVuIiwiZ3JhbnQiOiI0NDQ0NDQ0NC00NDQ0LTQ0NDQtODQ0NC00NDQ0NDQ0NDQ0NDQiLCJydW5faWQiOiJmZW5jZS13YXRjaCIsImp0aSI6ImZlbmNlLW9uZSJ9.nJHUFweQ3q3S_zguh5emUx5RFuJQR__2etxHW0_W8VEIQmJrxGbYbQ3YV57MLr9iQnBHQCPte6Tx495w6ScCAA",
+        "expect": {
+          "accept": false,
+          "jwks_fetches": 1,
+          "code": "malformed"
+        }
+      },
+      {
+        "label": "v5 run_owner is malformed",
+        "now": 1767225610,
+        "request": {
+          "method": "GET",
+          "url": "https://api.adopter.example/openapi-version-fixture.json",
+          "body_b64url": ""
+        },
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tY3M2IiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiNDdERVFwajhIQlNhLV9USW1XLTVKQ2V1UWVSa201Tk1wSldaRzNoU3VGVSIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiR0VUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL29wZW5hcGktdmVyc2lvbi1maXh0dXJlLmpzb24iLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiZGVsZWdhdGVkIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2ZXIiOjUsImFjdF9raW5kIjoiYXV0b21hdGlvbl9ydW4iLCJzdWIiOiJ1c2VyLTciLCJydW5faWQiOiJmZW5jZS1ydW4iLCJydW5fb3duZXIiOnsic3ViIjoib3duZXItNyJ9LCJqdGkiOiJmZW5jZS10d28ifQ.ubQj7UBfze1RJ-SWIZpUlm2Pj2L9oP1WvM_dV6_BNWP3OwBzt_Tfe5d-I_tD6xNhamdqyzXBUlZ_JKxQcxbOCg",
+        "expect": {
+          "accept": false,
+          "jwks_fetches": 1,
+          "code": "malformed"
+        }
+      },
+      {
+        "label": "v6 run_owner on the refused identifier",
+        "now": 1767225610,
+        "request": {
+          "method": "GET",
+          "url": "https://api.adopter.example/openapi-version-fixture.json",
+          "body_b64url": ""
+        },
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tY3M2IiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiNDdERVFwajhIQlNhLV9USW1XLTVKQ2V1UWVSa201Tk1wSldaRzNoU3VGVSIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiR0VUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL29wZW5hcGktdmVyc2lvbi1maXh0dXJlLmpzb24iLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiZGVsZWdhdGVkIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2ZXIiOjYsImFjdF9raW5kIjoiYXV0b21hdGlvbl9ydW4iLCJncmFudCI6IjQ0NDQ0NDQ0LTQ0NDQtNDQ0NC04NDQ0LTQ0NDQ0NDQ0NDQ0NCIsInJ1bl9pZCI6ImZlbmNlLXJ1biIsInJ1bl9vd25lciI6eyJzdWIiOiJvd25lci03In0sImp0aSI6ImZlbmNlLW9uZSJ9.fjOqnVhRc1mYJXE2zO0ICNXK5odt9gxWvxIMlzVfUyvJO4UiOd0GK9bFbLl7jOnOKGLZE0Uui8wUYt90CNXECQ",
+        "expect": {
+          "accept": true,
+          "jwks_fetches": 1,
+          "identity": {
+            "act_kind": "automation_run",
+            "adopter": "11111111-1111-4111-8111-111111111111",
+            "grant": "44444444-4444-4444-8444-444444444444",
+            "persona": "support",
+            "presence": "delegated",
+            "run_id": "fence-run",
+            "scopes": [
+              "records.read",
+              "records.write"
+            ],
+            "tenant": "22222222-2222-4222-8222-222222222222",
+            "run_owner": {
+              "sub": "owner-7"
+            }
+          }
+        }
+      },
+      {
+        "label": "v6 watch_run on the refused identifier",
+        "now": 1767225610,
+        "request": {
+          "method": "GET",
+          "url": "https://api.adopter.example/openapi-version-fixture.json",
+          "body_b64url": ""
+        },
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tY3M2IiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiNDdERVFwajhIQlNhLV9USW1XLTVKQ2V1UWVSa201Tk1wSldaRzNoU3VGVSIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiR0VUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL29wZW5hcGktdmVyc2lvbi1maXh0dXJlLmpzb24iLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiZGVsZWdhdGVkIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2ZXIiOjYsImFjdF9raW5kIjoid2F0Y2hfcnVuIiwiZ3JhbnQiOiI0NDQ0NDQ0NC00NDQ0LTQ0NDQtODQ0NC00NDQ0NDQ0NDQ0NDQiLCJydW5faWQiOiJmZW5jZS13YXRjaCIsInJ1bl9vd25lciI6eyJzdWIiOiJvd25lci03In0sImp0aSI6ImZlbmNlLXR3byJ9.1Bg5bOI_AvboSfJQ2ujWgPXS8rSepD3gRmO-vO515UDxu5wtmWqgABqRbFtkuuq1ynd9uv-6VazonAvVRJFMAQ",
+        "expect": {
+          "accept": true,
+          "jwks_fetches": 1,
+          "identity": {
+            "act_kind": "watch_run",
+            "adopter": "11111111-1111-4111-8111-111111111111",
+            "grant": "44444444-4444-4444-8444-444444444444",
+            "persona": "support",
+            "presence": "delegated",
+            "run_id": "fence-watch",
+            "scopes": [
+              "records.read",
+              "records.write"
+            ],
+            "tenant": "22222222-2222-4222-8222-222222222222",
+            "run_owner": {
+              "sub": "owner-7"
             }
           }
         }
