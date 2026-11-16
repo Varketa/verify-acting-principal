@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import re
 import threading
@@ -94,6 +95,178 @@ class Vectors(unittest.TestCase):
                             self.assertEqual(code, want["code"], f"step {i} code")
                         if want.get("jwks_fetches"):
                             self.assertEqual(h.counts.get(jwks), want["jwks_fetches"], f"step {i} key-set fetches")
+
+    def test_issuer_origin_configuration_refuses_host_aliases(self) -> None:
+        cfg = MANIFEST["config"]
+        fetches: list[str] = []
+
+        def fetch(url: str) -> FetchedDocument:
+            fetches.append(url)
+            self.fail("the constructor fetched a document")
+
+        options = dict(adopter=cfg["adopter"], audience=cfg["audience"], fetch_document=fetch,
+                       replay_store=InMemoryReplayStore(single_instance=True))
+        for origin in (
+            "https://127.1", "https://0177.0.0.1", "https://0x7f000001",
+            "https://example.127", "https://example.0x", "https://127.0.0.1.",
+            "https://%65xample.test", "https://[2001:0db8:0:0:0:0:0:1]",
+            "https://[fe80::1%25en0]",
+        ):
+            with self.subTest(issuer=origin), self.assertRaisesRegex(ValueError, "issuer.*https:// origin"):
+                Verifier(issuer=origin, **options)
+        for origin in (
+            "https://127.0.0.1", "https://[2001:db8::1]", "https://example.test",
+            "https://1.example.test:8443", "https://example.123x",
+            "https://api.varketa.ai", "https://app.dev.varketa.ai",
+            "https://[::ffff:192.0.2.1]", "https://[::ffff:c000:201]", "https://[::ffff:c000:201%25en0]",
+        ):
+            with self.subTest(issuer=origin):
+                Verifier(issuer=origin, **options)
+        self.assertEqual(fetches, [])
+
+    def test_signed_issuer_origin_comparison_is_literal(self) -> None:
+        harness, step, sign = _signing_harness()
+        issuer = MANIFEST["config"]["issuer"]
+        alias = issuer.replace("issuer", "%69ssuer", 1)
+        wrong = sign(lambda claims: claims.update(iss=alias))
+        good = sign(lambda claims: None)
+
+        self.assertEqual(harness.verify(dict(step, assertion=wrong)), (None, "iss"))
+        self.assertEqual(harness.verify(dict(step, assertion=good)), (step["expect"]["identity"], ""))
+        self.assertEqual(harness.counts, {issuer + "/.well-known/varketa-acting-principal": 1, JWKS: 1})
+
+    def test_shared_discovery_and_key_boundaries(self) -> None:
+        path = VECTORS.parent / "testdata" / "discovery-and-key-boundaries.json"
+        fixture = json.loads(path.read_bytes())
+        inputs, responses, cases = (fixture[key] for key in ("inputs", "responses", "cases"))
+        self.assertTrue(cases)
+        for case in cases:
+            fetches = {url: [responses[name] for name in names] for url, names in case["fetches"].items()}
+            h = Harness({"fetches": fetches})
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify({**inputs[step["input"]], "now": step["now"]})
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts, want["fetch_counts"])
+
+    def test_assertion_json_scalar_escapes_use_exact_shared_signed_bytes(self) -> None:
+        path = VECTORS.parent / "testdata" / "assertion-json-scalars.json"
+        for case in json.loads(path.read_bytes()):
+            h = Harness(case)
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify(step)
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
+                    if want["jwks_fetches"] == 0:
+                        self.assertFalse(h.counts)
+
+    def test_assertion_json_depth_uses_the_exact_shared_signed_bytes(self) -> None:
+        path = VECTORS.parent / "testdata" / "assertion-json-depth.json"
+        for case in json.loads(path.read_bytes()):
+            h = Harness(case)
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify(step)
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
+                    if want["jwks_fetches"] == 0:
+                        self.assertFalse(h.counts)
+
+    def test_approval_chains_use_the_exact_shared_signed_bytes(self) -> None:
+        path = VECTORS.parent / "testdata" / "approval-chains.json"
+        for case in json.loads(path.read_bytes()):
+            h = Harness(case)
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify(step)
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
+
+    def test_actor_kinds_respect_the_exact_shared_claim_set_boundaries(self) -> None:
+        for case in json.loads((VECTORS.parent / "testdata" / "actor-kind-versions.json").read_bytes()):
+            h = Harness(case)
+            for step in case["steps"]:
+                with self.subTest(case=case["name"], step=step["label"]):
+                    identity, code = h.verify(step)
+                    want = step["expect"]
+                    self.assertEqual(code, want.get("code", ""))
+                    self.assertEqual(identity, want.get("identity"))
+                    self.assertEqual(h.counts.get(JWKS, 0), want["jwks_fetches"])
+
+    def test_clock_samples_fail_as_operational_errors(self) -> None:
+        fixture, step, sign = _signing_harness()
+        now = step["now"]
+        cfg = MANIFEST["config"]
+        req = step["request"]
+        request = dict(method=req["method"], url=req["url"], body=b64(req["body_b64url"]))
+        good = sign(lambda _: None)
+        expired = sign(lambda c: c.update(iat=now - 180, exp=now - 61))
+
+        class Store(InMemoryReplayStore):
+            def __init__(self) -> None:
+                super().__init__(single_instance=True)
+                self.writes = []
+
+            def set_if_absent(self, key, ttl_seconds, at):
+                self.writes.append((key, ttl_seconds, at))
+                return super().set_if_absent(key, ttl_seconds, at)
+
+        def make(clock):
+            fixture.counts.clear()
+            store = Store()
+            return Verifier(issuer=cfg["issuer"], adopter=cfg["adopter"], audience=cfg["audience"],
+                            replay_store=store, clock=clock, fetch_document=fixture.fetch), store
+
+        for index, bad in [(0, True), (1, float("inf")), (2, now + 0.25), (3, float("nan"))]:
+            with self.subTest(clock_sample=index + 1):
+                read = 0
+
+                def clock():
+                    nonlocal read
+                    read += 1
+                    return bad if read == index + 1 else now
+
+                v, store = make(clock)
+                with self.assertRaisesRegex(ValueError, "clock"):
+                    v.verify(**request, assertion=expired if index == 3 else good)
+                self.assertEqual(read, index + 1)
+                self.assertEqual(sum(fixture.counts.values()), 0 if index == 0 else 2)
+                self.assertEqual(store.writes, [])
+
+        failure = RuntimeError("clock unavailable")
+
+        def failed_clock():
+            raise failure
+
+        v, store = make(failed_clock)
+        with self.assertRaises(RuntimeError) as fault:
+            v.verify(**request, assertion=good)
+        self.assertIs(fault.exception, failure)
+        self.assertEqual(store.writes, [])
+
+        reads = []
+
+        def healthy_clock():
+            reads.append(now)
+            return now
+
+        v, store = make(healthy_clock)
+        self.assertEqual(v.verify(**request, assertion=good), step["expect"]["identity"])
+        self.assertEqual(reads, [now] * 4)
+        claims = json.loads(b64(good.split(".")[1]))
+        self.assertEqual(store.writes, [(cfg["issuer"] + "\0" + claims["jti"], claims["exp"] + 60 - now + 1, now)])
+        with self.assertRaises(VerificationError) as replay:
+            v.verify(**request, assertion=good)
+        self.assertEqual(replay.exception.code, "replay")
 
     def test_of_two_concurrent_copies_exactly_one_is_accepted(self) -> None:
         case = json.loads((DIR / "cases" / "good.json").read_text())
@@ -215,6 +388,43 @@ class Vectors(unittest.TestCase):
         identity, code = _resigned(lambda c: c.update({f: float(c[f]) for f in ("ver", "iat", "exp")}))
         self.assertEqual(code, "")
         self.assertEqual(identity, json.loads((DIR / "cases" / "good.json").read_text())["steps"][0]["expect"]["identity"])
+
+    def test_caller_body_encoding_preserves_first_refusal_and_exact_bytes(self) -> None:
+        h, step, sign = _signing_harness()
+        h.now = step["now"]
+        request = step["request"]
+        text = "\ufffd\U0001f9ea"
+        digest = base64.urlsafe_b64encode(hashlib.sha256(text.encode()).digest()).rstrip(b"=").decode()
+        assertion = sign(lambda claims: claims.update(bdy=digest))
+
+        def verify(body, token=assertion, url=request["url"]):
+            return h.verifier.verify(method=request["method"], url=url, body=body, assertion=token)
+
+        for body in ("\ud800\U0001f9ea", "\udc00\U0001f9ea"):
+            with self.subTest(body=body):
+                with self.assertRaises(VerificationError) as exc:
+                    verify(body)
+                self.assertEqual(exc.exception.code, "bdy")
+
+        body = "\ud800\U0001f9ea"
+        with self.assertRaises(VerificationError) as exc:
+            verify(body, url=request["url"] + "/wrong")
+        self.assertEqual(exc.exception.code, "htu")
+
+        def omit_tenant(claims):
+            claims.update(bdy=digest)
+            claims.pop("tenant")
+
+        with self.assertRaises(VerificationError) as exc:
+            verify(body, sign(omit_tenant))
+        self.assertEqual(exc.exception.code, "bdy")
+        tenant = step["expect"]["identity"]["tenant"]
+        self.assertEqual(verify(text)["tenant"], tenant)
+
+        binary = b"\xff\x00"
+        bdy = base64.urlsafe_b64encode(hashlib.sha256(binary).digest()).rstrip(b"=").decode()
+        binary_assertion = sign(lambda claims: claims.update(bdy=bdy, jti=claims["jti"] + "-binary"))
+        self.assertEqual(verify(binary, binary_assertion)["tenant"], tenant)
 
     def test_a_present_sub_id_is_exactly_iss_sub(self) -> None:
         # Shapes no vector carries: a fourth member, null, an array, a non-string subject. And one sub_id on ver 3, which
@@ -396,6 +606,145 @@ class Vectors(unittest.TestCase):
             with mock.patch.object(urllib.request, "build_opener", opener_for(Answer([b"x" * 8192] * 9, 0))), \
                     self.assertRaisesRegex(ValueError, "over 65536 bytes"):
                 vap._default_fetch("https://issuer.example/jwks.json")
+
+    def test_default_fetch_checks_completion_in_the_worker(self) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+        import varketa_verify_acting_principal as vap
+
+        cases = (
+            ("late EOF", 11, 11, TimeoutError),
+            ("late response close", 9, 11, TimeoutError),
+            ("exact deadline", 9, 10, TimeoutError),
+            ("timely worker observed late", 8, 9, None),
+            ("timely error observed late", 8, 9, OSError),
+            ("process-control error", 8, 9, KeyboardInterrupt),
+        )
+        for name, eof, closed, expected in cases:
+            with self.subTest(case=name):
+                now = 0
+                events = []
+                original_error = expected("worker failure") if expected in (OSError, KeyboardInterrupt) else None
+
+                class Answer:
+                    status, headers = 200, Message()
+
+                    def __enter__(self):
+                        return self
+
+                    def read1(self, _size):
+                        nonlocal now
+                        if events[-1] == "open":
+                            events.append("body")
+                            return b'{"keys":[]}'
+                        now = eof
+                        events.append("EOF")
+                        return b""
+
+                    def __exit__(self, *_):
+                        nonlocal now
+                        now = closed
+                        events.append("close")
+                        if original_error is not None:
+                            raise original_error
+                        return False
+
+                def open_response(_request, *, timeout):
+                    self.assertEqual(timeout, 10)
+                    events.append("open")
+                    return Answer()
+
+                class Worker:
+                    # Complete the worker before the caller can inspect its liveness.
+                    def __init__(self, *, target, name, daemon):
+                        if name != "varketa-verify-fetch" or not daemon:
+                            raise AssertionError("expected the default fetch daemon worker")
+                        self.target = target
+
+                    def start(self):
+                        events.append("start")
+
+                    def join(self, timeout):
+                        nonlocal now
+                        if timeout != 10:
+                            raise AssertionError("caller did not join for the remaining budget")
+                        self.target()
+                        now = 12
+                        events.append("join returned")
+
+                    def is_alive(self):
+                        return False
+
+                with mock.patch.object(vap, "_FETCH_TIMEOUT", 10), \
+                        mock.patch.object(vap, "time", SimpleNamespace(monotonic=lambda: now)), \
+                        mock.patch.object(vap, "threading", SimpleNamespace(Thread=Worker)), \
+                        mock.patch.object(vap.urllib.request, "build_opener",
+                                          return_value=SimpleNamespace(open=open_response)):
+                    if expected is None:
+                        self.assertEqual(vap._default_fetch(JWKS).body, b'{"keys":[]}')
+                    else:
+                        with self.assertRaises(expected) as caught:
+                            vap._default_fetch(JWKS)
+                        if original_error is not None:
+                            self.assertIs(caught.exception, original_error)
+                    self.assertEqual(events, ["start", "open", "body", "EOF", "close", "join returned"])
+
+    def test_default_fetch_reads_ready_outcome_without_worker_retirement(self) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+        import varketa_verify_acting_principal as vap
+
+        document = FetchedDocument(200, "max-age=60", b'{"keys":[]}')
+        for name, published in (
+            ("ready document, worker alive", document),
+            ("not ready, worker alive", None),
+            ("ready ordinary error, worker alive", OSError("acquisition failed")),
+            ("ready control error, worker alive", KeyboardInterrupt("interrupted")),
+        ):
+            with self.subTest(case=name):
+                now = 0
+                waits = []
+                completed = []
+
+                def fetch(_url, _deadline):
+                    if published is None:
+                        self.fail("the worker should still be fetching")
+                    if isinstance(published, BaseException):
+                        raise published
+                    return published
+
+                class Worker:
+                    def __init__(self, *, target, name, daemon):
+                        self.target = target
+
+                    def start(self):
+                        pass
+
+                    def join(self, timeout):
+                        nonlocal now
+                        waits.append(timeout)
+                        if published is not None:
+                            now = 9
+                            self.target()
+                            completed.append(now)
+                        now = 10
+
+                    def is_alive(self):
+                        return True
+
+                with mock.patch.object(vap, "_FETCH_TIMEOUT", 10), \
+                        mock.patch.object(vap, "time", SimpleNamespace(monotonic=lambda: now)), \
+                        mock.patch.object(vap, "threading", SimpleNamespace(Thread=Worker)), \
+                        mock.patch.object(vap, "_fetch_until", fetch):
+                    if published is document:
+                        self.assertIs(vap._default_fetch(JWKS), document)
+                    else:
+                        with self.assertRaises(type(published) if published is not None else TimeoutError) as caught:
+                            vap._default_fetch(JWKS)
+                        if published is not None:
+                            self.assertIs(caught.exception, published)
+                self.assertEqual(waits, [10])
+                self.assertEqual(completed, [9] if published is not None else [])
 
     def test_a_verify_whose_key_is_cached_never_waits_behind_a_slow_fetch(self) -> None:
         # The discovery runs outside the verifier's lock: while one verify waits on the refetch an unknown kid starts,

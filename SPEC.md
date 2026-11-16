@@ -17,7 +17,10 @@ A verifier REQUIRES three settings and refuses to start without any of them:
   `https://app.dev.varketa.ai` is Varketa's development issuer, for building against Varketa's development
   deployment. It is NOT production: configure it only on a development or test instance of your API, never on the one
   your customers use. Its keys are discovered the same way (§2), from
-  `https://app.dev.varketa.ai/.well-known/varketa-acting-principal`.
+  `https://app.dev.varketa.ai/.well-known/varketa-acting-principal`. Configure the exact published issuer spelling.
+  The Python SDK rejects percent-escaped DNS hostnames, scope identifiers and noncanonical spellings in
+  ordinary IPv6 literals, and numeric final labels outside canonical dotted-decimal IPv4. Earlier Python
+  SDK versions could accept these issuer spellings at construction.
 - **adopter**: your API's adopter id, shown on Varketa's Tool sources page.
 - **audience**: your API's own origin (`https://host[:port]`), the `aud` Varketa signs.
 
@@ -42,6 +45,12 @@ It also REQUIRES a replay store (§5). There is no silent default.
 Refuse at the first failing check with its code. The order is normative: a vector can break more than one check, and
 its code is the first one it breaks.
 
+These codes describe verification refusals, including failed key acquisition where §2 prescribes it. The SDK can
+also propagate configuration, runtime and adopter callback failures as operational errors. A URL mapping that
+returns a different URL fails check 15. A mapping that throws fails the operation without that verdict. The default
+clocks return whole epoch seconds. Each custom JavaScript clock sample must be finite and each Python sample must
+be an integer excluding booleans. An invalid sample is an operational error. The verifier does not substitute a clock.
+
 | # | Check | Code |
 |---|---|---|
 | 1 | The header is present, has three dot-separated parts, and its first is a base64url JSON object | `malformed` |
@@ -49,7 +58,7 @@ its code is the first one it breaks.
 | 3 | `alg` is `ES256`, `ES384` or `EdDSA`; `none`, RSA and HMAC are refused | `alg` |
 | 4 | The key set is fresh (§2.3) | `jwks_unavailable` |
 | 5 | The `kid` is in the set (§2.4) | `kid` |
-| 6 | The signature verifies under that key, whose type and curve match `alg` (a signature part that is not base64url is `malformed`, judged before the key's type; a claims part that is not base64url, or claims that are not a JSON object, is `malformed` once the signature verifies) | `signature` |
+| 6 | The signature verifies under that key. The key's type and curve match the protected header's `alg`, and the JWK's own `alg`, when present, matches it too. A signature part that is not base64url is `malformed`, judged before key compatibility. A claims part that is not base64url, or claims that are not a JSON object, is `malformed` once the signature verifies. | `signature` |
 | 7 | `iss` equals the configured issuer | `iss` |
 | 8 | `ver` is a version this verifier knows (3, 4, 5 or 6) | `ver` |
 | 9 | `adopter` equals the configured adopter id | `adopter` |
@@ -60,10 +69,27 @@ its code is the first one it breaks.
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `discovery` and `on_behalf` require claim set 5 or later, and `watch_run` and a present `run_owner` require claim set 6 or later; `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
+The protected header and claims each have a maximum JSON depth of 32, counting the root object as level 1.
+Each nested object or array adds one level along its path, including empty containers and superseded members.
+Strings and other scalars add no levels. An assertion extension deeper than this is refused as
+`malformed` at check 1 for the header or at check 6 for claims after signature verification.
+This limit applies to assertion JSON. Fetched metadata and JWK Sets use the fetch limits in §2.
+
+In the protected header and claims objects, every member name and string value must contain only Unicode scalar values.
+This includes nested, unrecognized and superseded member occurrences. A surrogate escape is allowed only in an adjacent
+high–low pair. Such a pair and the equivalent literal UTF-8 character have the same decoded value. Compare names after
+decoding without normalization. After scalar validation, a repeated name selects its last value. Refuse an unpaired
+surrogate escape as `malformed` at check 1 for the header or at check 6 for claims after signature verification.
+
 `ver`, `iat` and `exp` are integers; a fractional or non-numeric value is treated as absent, so it fails its check.
+
+Supply the verifier with the exact request body bytes for check 16. Re-serializing JSON or converting the bytes
+to text and back can change the hash. For a caller-supplied string, encode it as UTF-8 without replacement. A string
+with an unpaired surrogate has no lossless UTF-8 encoding and is refused at check 16 with `bdy`.
+This concerns the request body supplied to the verifier, separate from JSON decoding of the signed assertion.
 
 Why `adopter` matters: `aud` is the origin a Varketa tenant registered, and any tenant can register any origin. So a
 valid Varketa signature with your `aud` can still be a call for ANOTHER adopter's source on the same origin. Only the
@@ -82,6 +108,10 @@ An accepted assertion exposes:
 - `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`, from claim set 5
   `discovery` and `on_behalf`, and from claim set 6 `watch_run`, below), `presence` (`delegated`, `interactive`,
   `confirmed`), `run_id` (absent on a person's own act), `approved_by`.
+  For an accepted claim-set version earlier than 5, `act_kind: "discovery"` or `act_kind: "on_behalf"` is
+  refused as `malformed` at check 17 before replay, and so are `act_kind: "watch_run"` and a present `run_owner`
+  at a version earlier than 6. An absent `act_kind` in claim set 3 or 4 remains allowed when the other checks pass.
+  Check 8 still refuses any unsupported version before this check.
 - `act_kind` `discovery` (claim set 5): Varketa reading your API's own surface, such as an MCP `tools/list` or your
   OpenAPI document, to learn what it offers. It names no tool and no run. Its `sub` is `varketa-discovery` when no
   grant made the request; otherwise `grant` names the grant. Act on no customer's data for it.
@@ -114,14 +144,32 @@ An accepted assertion exposes:
 - `probe: true` on Varketa's verification probe only. A probe is verified like any other assertion, carries a fixed
   synthetic subject rather than a real person's, and reaches only a read. Act on no real data for it.
 
+When Varketa asserts an approval, it emits `approved_by` as a chain of up to eight links. Each link has a
+string `sub` naming the approver's grant and, when another link follows, an `act` member containing that link.
+The outermost `sub` identifies the approver selected for this apply. Varketa omits the claim when it has no
+approver to report. The verifier leaves the claim absent in that case.
+
+A present `approved_by` must be an object of one to eight links. Each decoded link has its own `sub`,
+a string containing at least one character outside [Unicode 17.0 White_Space](https://www.unicode.org/Public/17.0.0/ucd/PropList.txt),
+and only an optional `act` member containing the next link. The verifier exposes the accepted parsed chain unchanged,
+including repeated grant values. It refuses any other shape as `malformed` at check 17 before recording replay.
+Earlier verifier versions accepted some signed values outside this shape. The new check accepts the shape emitted by
+the supported typed Varketa issuer. It does not establish whether the approvals were authorized or independent.
+
 Authorization against these values is your own policy.
 
 ## 5. The replay record
 
 Record `jti` only AFTER every other check passes, so a refused assertion's `jti` is never recorded. The record is the
 atomic step: an insert-if-absent on (`iss`, `jti`) whose time to live covers the last accepted second, `exp` + 60 s
-inclusive: `exp + 60 − now + 1` whole seconds, never less than 1. A conflict is a replay and is refused, so of two concurrent copies of one assertion exactly one is accepted. The store interface is set-if-absent,
-never a read followed by a write.
+inclusive: `exp + 60 − now + 1` seconds, never less than 1. For a fractional JavaScript clock sample the computed TTL
+may be fractional. Before the store call the JavaScript SDK requires a finite TTL and finite computed exclusive
+expiry strictly after the computed inclusive cutoff. Unrepresentable retention is an operational error.
+
+The store returns false for a conflict, which is refused as `replay`. Of two concurrent copies of one assertion
+exactly one is accepted. The store interface is set-if-absent, never a read followed by a write. A storage failure
+can leave the outcome unknown, for example if the acknowledgement is lost after insertion. In that case the store
+raises an error. The verifier returns no identity and does not retry the insertion or interpret it as a conflict.
 
 An API served by more than one instance MUST supply a shared store (Redis `SET key 1 NX EX ttl`, or a unique-keyed
 database insert). The libraries' in-memory store is correct for one instance only and must be asked for explicitly.
@@ -132,7 +180,8 @@ database insert). The libraries' in-memory store is correct for one instance onl
 `vectors/v<ver>/cases/<name>.json` is one verifier's life:
 
 - `fetches`: what each URL answers. The i-th fetch of a URL gets its i-th response, and the last one repeats. A
-  missing `body` is an empty one.
+  missing `body` is an empty one. A status other than 200, including 3xx, is a failed fetch. The script does not
+  follow redirects (§2.5).
 - `steps`, in order, each with its clock (`now`, seconds since the epoch), the request (`method`, `url`,
   `body_b64url`), the `assertion` header value, and `expect`: `accept` with the exposed `identity`, or a refusal
   `code`. Where `jwks_fetches` is present, the JWK Set must have been fetched exactly that many times by then.

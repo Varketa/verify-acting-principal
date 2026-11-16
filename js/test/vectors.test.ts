@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { join } from "node:path";
 import { Verifier, InMemoryReplayStore, VerificationError, SUPPORTED_VERSIONS, type FetchedDocument } from "../src/index.ts";
 
@@ -28,11 +28,12 @@ interface Step {
 }
 interface Case { name: string; fetches: Record<string, { status: number; cache_control?: string; body?: unknown }[]>; steps: Step[] }
 
-function harness(c: Case, m = manifest) {
+function harness(c: Case, m = manifest, requestUrl?: (url: string) => string) {
   const counts = new Map<string, number>();
   let now = 0;
   const v = new Verifier({
     ...m.config,
+    requestUrl,
     replayStore: new InMemoryReplayStore({ singleInstance: true }),
     clock: () => now,
     fetchDocument: async (url: string): Promise<FetchedDocument> => {
@@ -101,6 +102,134 @@ for (const set of SETS) {
     });
   }
 }
+
+for (const scenario of [
+  { name: "timely metadata and keys", metadataMs: 9999, keysMs: 9999, code: null, fetches: 2 },
+  { name: "late metadata", metadataMs: 10001, keysMs: 0, code: "jwks_unavailable", fetches: 1 },
+  { name: "keys at the deadline", metadataMs: 9999, keysMs: 10000, code: "jwks_unavailable", fetches: 2 },
+]) {
+  test(`default discovery completion: ${scenario.name}`, async (t) => {
+    const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+    const step = c.steps[0];
+    const metadata = `${manifest.config.issuer}/.well-known/varketa-acting-principal`;
+    const jwks = `${metadata}/jwks.json`;
+    let now = 0;
+    let lastFetchStartedAt = 0;
+    let replayAt: number | undefined;
+    const urls: string[] = [];
+    const options: (RequestInit | undefined)[] = [];
+    const signals: boolean[] = [];
+    t.mock.method(performance, "now", () => now);
+    t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      lastFetchStartedAt = now;
+      urls.push(url);
+      options.push(init);
+      const response = c.fetches[url][0];
+      const elapsed = url === metadata ? scenario.metadataMs : scenario.keysMs;
+      const body = async function* () {
+        yield Buffer.from(JSON.stringify(response.body));
+        now += elapsed;
+        signals.push(init?.signal?.aborted ?? true);
+      };
+      return { status: response.status, headers: { get: () => {
+        // The promise consumer resumes late even though the full SDK document is ready on time.
+        if (scenario.code === null) queueMicrotask(() => { now += 2; });
+        return response.cache_control ?? null;
+      } },
+        body: body() } as unknown as Response;
+    });
+    const replay = new InMemoryReplayStore({ singleInstance: true });
+    const v = new Verifier({
+      ...manifest.config,
+      clock: () => step.now,
+      replayStore: { setIfAbsent: (...args) => {
+        replayAt = now;
+        return replay.setIfAbsent(...args);
+      } },
+    });
+    const result = await v.verify({
+      method: step.request.method, url: step.request.url,
+      body: Buffer.from(step.request.body_b64url, "base64url"), assertion: step.assertion,
+    }).catch((error: unknown) => {
+      if (!(error instanceof VerificationError)) throw error;
+      return error.code;
+    });
+    const replayElapsed = replayAt === undefined ? null : replayAt - lastFetchStartedAt;
+    t.diagnostic(JSON.stringify({ result, urls, signals, replayElapsed }));
+    assert.deepEqual(result, scenario.code ?? step.expect.identity);
+    assert.deepEqual(urls, [metadata, jwks].slice(0, scenario.fetches));
+    assert.deepEqual(options.map((init) => init?.redirect), Array(scenario.fetches).fill("error"));
+    assert.deepEqual(signals, Array(scenario.fetches).fill(false));
+    assert.equal(replayElapsed, scenario.code === null ? 10001 : null);
+  });
+}
+
+for (const [elapsed, expected] of [
+  [10000, []],
+  [9999, ["timer:1", "metadata"]],
+] as const) {
+  test(`default discovery dispatch: ${elapsed} ms already elapsed`, async (t) => {
+    const metadata = `${manifest.config.issuer}/.well-known/varketa-acting-principal`;
+    const events: string[] = [];
+    let reads = 0;
+    t.mock.method(performance, "now", () => reads++ === 0 ? 0 : elapsed);
+    t.mock.method(AbortSignal, "timeout", (ms: number) => {
+      events.push(`timer:${ms}`);
+      return new AbortController().signal;
+    });
+    t.mock.method(globalThis, "fetch", async (url: string) => {
+      events.push(url === metadata ? "metadata" : url);
+      throw new Error("inert transport failed");
+    });
+    const v = new Verifier({
+      ...manifest.config,
+      clock: () => 0,
+      replayStore: { setIfAbsent: async () => assert.fail("discovery failure reached replay") },
+    });
+    const header = Buffer.from(JSON.stringify({ typ: "varketa-acting-principal+jwt", alg: "EdDSA", kid: "test" }));
+    await assert.rejects(v.verify({
+      method: "GET", url: manifest.config.audience, body: "", assertion: `${header.toString("base64url")}.e30.AAAA`,
+    }), (error: unknown) => error instanceof VerificationError && error.code === "jwks_unavailable");
+    t.diagnostic(JSON.stringify({ elapsed, events }));
+    assert.deepEqual(events, expected);
+  });
+}
+
+test("shared discovery and key boundaries", async (t) => {
+  type DiscoveryStep = Pick<Step, "now"> & {
+    label: string;
+    input: string;
+    expect: Step["expect"] & { fetch_counts: Record<string, number> };
+  };
+  type Response = Case["fetches"][string][number];
+  const { inputs, responses, cases }: {
+    inputs: Record<string, Pick<Step, "request" | "assertion">>;
+    responses: Record<string, Response>;
+    cases: { name: string; fetches: Record<string, string[]>; steps: DiscoveryStep[] }[];
+  } = JSON.parse(readFileSync(join(vectors, "..", "testdata", "discovery-and-key-boundaries.json"), "utf8"));
+  assert.ok(cases.length > 0);
+  for (const c of cases) {
+    await t.test(c.name, async () => {
+      const fetches = Object.fromEntries(Object.entries(c.fetches).map(([url, names]) => [url, names.map((name) => {
+        assert.ok(Object.hasOwn(responses, name), name);
+        return responses[name];
+      })]));
+      const h = harness({ name: c.name, fetches, steps: [] });
+      for (const step of c.steps) {
+        h.setNow(step.now);
+        assert.ok(Object.hasOwn(inputs, step.input), step.input);
+        const { request: { method, url, body_b64url }, assertion } = inputs[step.input];
+        const result = h.v.verify({ method, url, body: Buffer.from(body_b64url, "base64url"), assertion });
+        if (step.expect.accept) {
+          assert.deepEqual(await result, step.expect.identity, step.label);
+        } else {
+          await assert.rejects(result, { name: "VerificationError", code: step.expect.code }, step.label);
+        }
+        assert.deepEqual(Object.fromEntries(h.counts), step.expect.fetch_counts, step.label);
+      }
+    });
+  }
+});
 
 test("with an atomic store, of two concurrent copies of one assertion exactly one is accepted", async () => {
   const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
@@ -255,6 +384,91 @@ test("the default fetch refuses invalid UTF-8 and oversized documents, then reco
 
 const jwksUrl = `${manifest.config.issuer}/.well-known/varketa-acting-principal/jwks.json`;
 
+test("assertion JSON scalar escapes use exact shared signed bytes", async () => {
+  type ScalarCase = Omit<Case, "steps"> & { steps: (Step & { label: string })[] };
+  const cases: ScalarCase[] = JSON.parse(readFileSync(join(vectors, "..", "testdata", "assertion-json-scalars.json"), "utf8"));
+  for (const c of cases) {
+    const h = harness(c);
+    for (const step of c.steps) {
+      h.setNow(step.now);
+      const { method, url, body_b64url } = step.request;
+      const req = { method, url, body: Buffer.from(body_b64url, "base64url"), assertion: step.assertion };
+      const context = `${c.name}, ${step.label}`;
+      if (step.expect.accept) {
+        assert.deepEqual(await h.v.verify(req), step.expect.identity, context);
+      } else {
+        await assert.rejects(h.v.verify(req), (e) => e instanceof VerificationError && e.code === step.expect.code, context);
+      }
+      assert.equal(h.counts.get(jwksUrl) ?? 0, step.expect.jwks_fetches, context);
+      if (step.expect.jwks_fetches === 0) assert.equal(h.counts.size, 0, context);
+    }
+  }
+});
+
+test("assertion JSON depth uses the exact shared signed bytes", async (t) => {
+  type DepthCase = Omit<Case, "steps"> & { steps: (Step & { label: string })[] };
+  const cases: DepthCase[] = JSON.parse(readFileSync(join(vectors, "..", "testdata", "assertion-json-depth.json"), "utf8"));
+  for (const c of cases) {
+    await t.test(c.name, async () => {
+      const h = harness(c);
+      for (const step of c.steps) {
+        h.setNow(step.now);
+        const { method, url, body_b64url } = step.request;
+        const result = h.v.verify({ method, url, body: Buffer.from(body_b64url, "base64url"), assertion: step.assertion });
+        if (step.expect.accept) {
+          assert.deepEqual(await result, step.expect.identity, step.label);
+        } else {
+          await assert.rejects(result, (e) => e instanceof VerificationError && e.code === step.expect.code, step.label);
+        }
+        assert.equal(h.counts.get(jwksUrl) ?? 0, step.expect.jwks_fetches, step.label);
+        if (step.expect.jwks_fetches === 0) assert.equal(h.counts.size, 0, step.label);
+      }
+    });
+  }
+});
+
+test("approval chains use the exact shared signed bytes", async (t) => {
+  type ApprovalCase = Omit<Case, "steps"> & { steps: (Step & { label: string })[] };
+  const cases: ApprovalCase[] = JSON.parse(readFileSync(join(vectors, "..", "testdata", "approval-chains.json"), "utf8"));
+  for (const c of cases) {
+    await t.test(c.name, async () => {
+      const h = harness(c);
+      for (const step of c.steps) {
+        h.setNow(step.now);
+        const { method, url, body_b64url } = step.request;
+        const result = h.v.verify({ method, url, body: Buffer.from(body_b64url, "base64url"), assertion: step.assertion });
+        if (step.expect.accept) {
+          assert.deepEqual(await result, step.expect.identity, step.label);
+        } else {
+          await assert.rejects(result, { name: "VerificationError", code: step.expect.code }, step.label);
+        }
+        assert.equal(h.counts.get(jwksUrl) ?? 0, step.expect.jwks_fetches, step.label);
+      }
+    });
+  }
+});
+
+test("actor kinds respect the exact shared claim-set boundaries", async (t) => {
+  type ActorCase = Omit<Case, "steps"> & { steps: (Step & { label: string })[] };
+  const cases: ActorCase[] = JSON.parse(readFileSync(join(vectors, "..", "testdata", "actor-kind-versions.json"), "utf8"));
+  for (const c of cases) {
+    await t.test(c.name, async () => {
+      const h = harness(c);
+      for (const step of c.steps) {
+        h.setNow(step.now);
+        const { method, url, body_b64url } = step.request;
+        const result = h.v.verify({ method, url, body: Buffer.from(body_b64url, "base64url"), assertion: step.assertion });
+        if (step.expect.accept) {
+          assert.deepEqual(await result, step.expect.identity, step.label);
+        } else {
+          await assert.rejects(result, { name: "VerificationError", code: step.expect.code }, step.label);
+        }
+        assert.equal(h.counts.get(jwksUrl) ?? 0, step.expect.jwks_fetches, step.label);
+      }
+    });
+  }
+});
+
 // A throwaway Ed25519 key under kid: its JWK, and an assertion of claims it signs.
 function signer(kid: string) {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
@@ -272,6 +486,119 @@ function signer(kid: string) {
     },
   };
 }
+
+test("clock samples and replay retention fail as operational errors", async (t) => {
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const claims = JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8"));
+  const key = signer("clock-boundary");
+  const request = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url") };
+  const make = (clock: () => number) => {
+    const store = new InMemoryReplayStore({ singleInstance: true });
+    const writes: [string, number, number][] = [];
+    let fetches = 0;
+    const v = new Verifier({
+      ...manifest.config, clock,
+      fetchDocument: async (url) => {
+        fetches++;
+        const r = c.fetches[url][0];
+        const body = url === jwksUrl ? { keys: [key.jwk] } : r.body;
+        return { status: r.status, cacheControl: r.cache_control ?? null, body: JSON.stringify(body) };
+      },
+      replayStore: {
+        async setIfAbsent(k, ttl, at) {
+          writes.push([k, ttl, at]);
+          return store.setIfAbsent(k, ttl, at);
+        },
+      },
+    });
+    return { v, writes, fetchCount: () => fetches };
+  };
+  const operational = (message: RegExp) => (e: unknown) =>
+    e instanceof Error && !(e instanceof VerificationError) && message.test(e.message);
+
+  for (const [index, bad] of [String(s.now) as unknown as number, Infinity, NaN].entries()) {
+    await t.test(`clock sample ${index + 1}`, async () => {
+      let read = 0;
+      const h = make(() => read++ === index ? bad : s.now);
+      const signed = index === 2 ? { ...claims, iat: s.now - 180, exp: s.now - 61 } : claims;
+      await assert.rejects(h.v.verify({ ...request, assertion: key.sign(signed) }), operational(/clock/));
+      assert.equal(read, index + 1);
+      assert.equal(h.fetchCount(), index === 0 ? 0 : 2);
+      assert.deepEqual(h.writes, []);
+    });
+  }
+  await t.test("clock exception is preserved", async () => {
+    const failure = new Error("clock unavailable");
+    const h = make(() => { throw failure; });
+    await assert.rejects(h.v.verify({ ...request, assertion: key.sign(claims) }), (e) => e === failure);
+    assert.deepEqual(h.writes, []);
+  });
+  await t.test("same-clock replay cutoff must have a representable later expiry", async () => {
+    const limit = 2 ** 53;
+    let now = limit;
+    const h = make(() => now);
+    const req = { ...request, assertion: key.sign({ ...claims, iat: limit - 120, exp: limit - 60 }) };
+    const replies = [];
+    for (let copy = 0; copy < 2; copy++) {
+      const [reply] = await Promise.allSettled([h.v.verify(req)]);
+      replies.push(reply);
+    }
+    assert.deepEqual(replies.map(({ status }) => status), ["rejected", "rejected"]);
+    for (const reply of replies) {
+      assert.ok(reply.status === "rejected" && operational(/replay expiry/)(reply.reason));
+    }
+    assert.deepEqual(h.writes, []);
+    now = limit - 1;
+    const usable = { ...request, assertion: key.sign({ ...claims, iat: now - 120, exp: now - 60 }) };
+    assert.deepEqual(await h.v.verify(usable), s.expect.identity);
+    assert.deepEqual(h.writes.map(([, ttl, at]) => [ttl, at]), [[1, now]]);
+    await assert.rejects(h.v.verify(usable), { name: "VerificationError", code: "replay" });
+  });
+  await t.test("finite fractional clock preserves replay operands and behavior", async () => {
+    const now = s.now + 0.25;
+    let read = 0;
+    const h = make(() => { read++; return now; });
+    const req = { ...request, assertion: key.sign(claims) };
+    assert.deepEqual(await h.v.verify(req), s.expect.identity);
+    assert.equal(read, 3);
+    assert.deepEqual(h.writes, [[`${manifest.config.issuer}\u0000${claims.jti}`, claims.exp + 60 - now + 1, now]]);
+    await assert.rejects(h.v.verify(req), { name: "VerificationError", code: "replay" });
+  });
+});
+
+test("caller body encoding preserves first refusal and exact bytes", async () => {
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  const s = c.steps[0];
+  const claims = JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8"));
+  const text = "\uFFFD\u{1F9EA}";
+  claims.bdy = createHash("sha256").update(text, "utf8").digest("base64url");
+  const key = signer("caller-body");
+  (c.fetches[jwksUrl][0].body as { keys: unknown[] }).keys = [key.jwk];
+  const binary = Uint8Array.of(0xff, 0);
+  const alias = s.request.url + "/binary-alias";
+  const h = harness(c, manifest, (url) => {
+    if (url !== alias) return url;
+    binary[0] = 0xfe;
+    return s.request.url;
+  });
+  h.setNow(s.now);
+  const req = { method: s.request.method, url: s.request.url, assertion: key.sign(claims) };
+  const isCode = (code: string) => (err: unknown) => err instanceof VerificationError && err.code === code;
+
+  for (const body of ["\uD800\u{1F9EA}", "\uDC00\u{1F9EA}"]) {
+    await assert.rejects(h.v.verify({ ...req, body }), isCode("bdy"));
+  }
+  const body = "\uD800\u{1F9EA}";
+  await assert.rejects(h.v.verify({ ...req, body, url: req.url + "/wrong" }), isCode("htu"));
+  await assert.rejects(h.v.verify({ ...req, body, assertion: key.sign({ ...claims, tenant: undefined }) }), isCode("bdy"));
+  assert.equal((await h.v.verify({ ...req, body: text })).tenant, claims.tenant);
+
+  const bdy = createHash("sha256").update(binary).digest("base64url");
+  const assertion = key.sign({ ...claims, bdy, jti: claims.jti + "-binary" });
+  assert.equal((await h.v.verify({ ...req, url: alias, body: binary, assertion })).tenant, claims.tenant);
+  assert.deepEqual(binary, Uint8Array.of(0xfe, 0));
+});
 
 // good's first step, its claims changed by change and signed again under a key the case's key set then carries.
 async function resigned(change: (claims: Record<string, unknown>) => void): Promise<{ code: string; identity?: Record<string, unknown> }> {

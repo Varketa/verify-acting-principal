@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import ipaddress
 import json
 import math
 import re
@@ -16,6 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from queue import Empty, SimpleQueue
 from typing import Any, Callable, Optional, Protocol, Union
 
 from cryptography.exceptions import InvalidSignature
@@ -44,7 +46,12 @@ _MAX_CACHE = 300
 _REFETCH_INTERVAL = 60
 _FETCH_TIMEOUT = 10
 _MAX_DOCUMENT_BYTES = 64 * 1024
+_MAX_ASSERTION_DEPTH = 32
+_MAX_APPROVAL_LINKS = 8
+# Unicode 17.0 White_Space, pinned to keep the wire rule independent of runtime strip behavior.
+_NON_WHITESPACE = re.compile(r"[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]")
 _B64URL = re.compile(r"[A-Za-z0-9_-]*")
+_NUMERIC_HOST_LABEL = re.compile(r"(?:[0-9]+|0x[0-9a-f]*)")
 
 
 class VerificationError(Exception):
@@ -65,7 +72,8 @@ class FetchedDocument:
 class ReplayStore(Protocol):
     def set_if_absent(self, key: str, ttl_seconds: int, now: int) -> bool:
         """Insert `key` with a time to live and report whether THIS call inserted it, in one atomic step: of two
-        concurrent calls with one key, exactly one returns True. Never a read followed by a write."""
+        concurrent calls with one key, exactly one returns True. Never a read followed by a write.
+        Return False only for a conflict. Raise if the result is unknown, including a lost write acknowledgement."""
 
 
 class _Flight:
@@ -110,29 +118,37 @@ def _default_fetch(url: str) -> FetchedDocument:
     """Fetch one discovery document: no redirect, at most 64 KiB, with a 10 s caller deadline (SPEC §2.5).
 
     urllib's own timeout bounds each socket operation, not the fetch, so an answer that arrives a few bytes at a time
-    would never end. The caller waits on a daemon worker for the remaining deadline and raises if it is still alive.
-    The worker is not cancelled; it also checks this deadline between reads. Its completion depends on lower-layer
-    open/read/response-close operations returning. urllib's normal proxy handling is kept.
+    would never end. The caller waits on a daemon worker for the remaining deadline and raises if no outcome is ready.
+    The worker is not cancelled; it checks the deadline between reads and before publishing a completed document.
+    Its completion depends on lower-layer open/read/response-close operations returning. urllib's normal proxy
+    handling is kept.
     """
     if not url.startswith("https://"):
         raise ValueError(f"{url}: not an https URL")
     deadline = time.monotonic() + _FETCH_TIMEOUT
-    result: dict[str, Any] = {}
+    result: SimpleQueue[FetchedDocument | BaseException] = SimpleQueue()
 
     def run() -> None:
         try:
-            result["document"] = _fetch_until(url, deadline)
+            outcome: FetchedDocument | BaseException = _fetch_until(url, deadline)
+            # Only the worker can distinguish a late response from delayed observation by the caller.
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s")
         except BaseException as e:  # noqa: BLE001 - handed to the caller, which fails closed
-            result["error"] = e
+            outcome = e
+        result.put(outcome)
 
     worker = threading.Thread(target=run, name="varketa-verify-fetch", daemon=True)
     worker.start()
     worker.join(max(0.0, deadline - time.monotonic()))
-    if worker.is_alive():
-        raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s")
-    if "error" in result:
-        raise result["error"]
-    return result["document"]
+    # Take the outcome once without waiting for worker teardown.
+    try:
+        outcome = result.get_nowait()
+    except Empty:
+        raise TimeoutError(f"{url}: no complete answer within {_FETCH_TIMEOUT} s") from None
+    if isinstance(outcome, BaseException):
+        raise outcome
+    return outcome
 
 
 def _fetch_until(url: str, deadline: float) -> FetchedDocument:
@@ -194,15 +210,79 @@ def _integer(literal: str) -> Any:
     return int(literal)
 
 
-def _object(b: bytes) -> dict[str, Any]:
+def _has_bounded_assertion_depth(text: str) -> bool:
+    # Bound native parser nesting. The native parser still checks JSON syntax.
+    depth = 0
+    in_string = False
+    chars = iter(text)
+    for ch in chars:
+        if in_string:
+            if ch == "\\":
+                next(chars, None)
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+            if depth > _MAX_ASSERTION_DEPTH:
+                return False
+        elif ch in "}]":
+            depth -= 1
+    return True
+
+
+def _has_scalar_escapes(text: str) -> bool:
+    # Scan valid JSON source so a duplicate name cannot hide a malformed earlier value.
+    # Every backslash begins an escape inside a string.
+    offset = 0
+    while True:
+        offset = text.find("\\", offset)
+        if offset == -1:
+            return True
+        if text[offset + 1] != "u":
+            offset += 2
+            continue
+        unit = int(text[offset + 2:offset + 6], 16)
+        offset += 6
+        if not 0xd800 <= unit <= 0xdfff:
+            continue
+        if unit >= 0xdc00 or not text.startswith("\\u", offset):
+            return False
+        low = int(text[offset + 2:offset + 6], 16)
+        if not 0xdc00 <= low <= 0xdfff:
+            return False
+        offset += 6
+
+
+def _object(b: bytes, *, assertion: bool = False) -> dict[str, Any]:
     try:
-        v = json.loads(b.decode("utf-8"), parse_constant=_no_constant, parse_int=_integer)
+        text = b.decode("utf-8")
+        if assertion and not _has_bounded_assertion_depth(text):
+            raise VerificationError("malformed")
+        v = json.loads(text, parse_constant=_no_constant, parse_int=_integer)
     except (ValueError, UnicodeDecodeError, RecursionError) as e:
-        # RecursionError: JSON nested past the interpreter's limit, which an unsigned header can be.
+        # RecursionError: parsing ran into the interpreter's own recursion guard.
         raise VerificationError("malformed") from e
-    if not isinstance(v, dict):
+    if not isinstance(v, dict) or (assertion and not _has_scalar_escapes(text)):
         raise VerificationError("malformed")
     return v
+
+
+def _is_approval_chain(link: Any) -> bool:
+    for _ in range(_MAX_APPROVAL_LINKS):
+        if not isinstance(link, dict):
+            return False
+        sub = link.get("sub")
+        if not isinstance(sub, str) or not _NON_WHITESPACE.search(sub):
+            return False
+        has_next = "act" in link
+        if len(link) != (2 if has_next else 1):
+            return False
+        if not has_next:
+            return True
+        link = link["act"]
+    return False
 
 
 def _public_key(jwk: dict[str, Any], alg: str) -> Any:
@@ -216,6 +296,27 @@ def _public_key(jwk: dict[str, Any], alg: str) -> Any:
     if len(x) != size or len(y) != size:
         raise ValueError("bad coordinates")
     return ec.EllipticCurvePublicNumbers(int.from_bytes(x, "big"), int.from_bytes(y, "big"), curve()).public_key()
+
+
+def _has_issuer_host_alias(host: str) -> bool:
+    if ":" in host:
+        try:
+            address = ipaddress.IPv6Address(host)
+        except ipaddress.AddressValueError:
+            # The general origin check owns non-IPv6 bracketed syntax.
+            return False
+        # Keep mapped addresses outside this check. Their string form differs by Python version.
+        return address.ipv4_mapped is None and (address.scope_id is not None or address.compressed != host)
+    if "%" in host:
+        return True
+    # A numeric final label selects IPv4 parsing, even before a trailing root dot.
+    # Validate the original host as strict dotted decimal without replacing it.
+    if _NUMERIC_HOST_LABEL.fullmatch(host.removesuffix(".").rsplit(".", 1)[-1]):
+        try:
+            ipaddress.IPv4Address(host)
+        except ipaddress.AddressValueError:
+            return True
+    return False
 
 
 class Verifier:
@@ -242,6 +343,8 @@ class Verifier:
                          + (f":{port}" if port not in (None, 443) else ""))
             if not host.isascii() or canonical != value:
                 raise ValueError(f"verify-acting-principal: {name} must be an https:// origin")
+            if name == "issuer" and _has_issuer_host_alias(host):
+                raise ValueError("verify-acting-principal: issuer must be an https:// origin with a canonical host")
         self._issuer, self._adopter, self._audience, self._store = issuer, adopter, audience, replay_store
         self._clock = clock or (lambda: int(time.time()))
         self._fetch = fetch_document or _default_fetch
@@ -285,16 +388,18 @@ class Verifier:
             keys = _object(r.body).get("keys") if r else None
         except VerificationError:
             keys = None
+        # Publish refreshed metadata only with the key set fetched through it. Failure leaves the prior snapshot intact,
+        # including its expiry. An unknown kid's failed refetch therefore leaves an unexpired snapshot usable (SPEC §2.3).
+        if r is None or not isinstance(keys, list):
+            return False
+        key_map = {k["kid"]: k for k in keys if isinstance(k, dict) and isinstance(k.get("kid"), str)}
+        key_max_age = _max_age(r.cache_control)
         with self._lock:
             if metadata:
                 self._jwks_uri, self._md_fetched_at, self._md_max_age = metadata
-            # A failed key-set fetch leaves the cache as it was: a fresh set stays usable until its max-age (SPEC §2.3
-            # refuses only after expiry), so an unknown kid's refetch against a failing issuer cannot discard it.
-            if not isinstance(keys, list):
-                return False
-            self._keys = {k["kid"]: k for k in keys if isinstance(k, dict) and isinstance(k.get("kid"), str)}
-            self._fetched_at, self._max_age = now, _max_age(r.cache_control)
-            return True
+            self._keys = key_map
+            self._fetched_at, self._max_age = now, key_max_age
+        return True
 
     def _stale(self, now: int) -> bool:
         return self._keys is None or now - self._fetched_at >= self._max_age \
@@ -325,10 +430,16 @@ class Verifier:
                 self._flight = None
             flight.done.set()
 
+    def _read_clock(self) -> int:
+        now = self._clock()
+        if not isinstance(now, int) or isinstance(now, bool):
+            raise ValueError("verify-acting-principal: clock must return integer epoch seconds")
+        return now
+
     def _key_for(self, kid: str) -> Optional[dict[str, Any]]:
         # A stale cache: one discovery serves every verify that needs it, and a failed one refuses them all.
         with self._lock:
-            now = self._clock()
+            now = self._read_clock()
             flight, lead = self._flight_for(now, refetch=False) if self._stale(now) else (None, False)
         if flight is not None:
             self._fly(flight, lead, now)
@@ -336,7 +447,7 @@ class Verifier:
                 raise VerificationError("jwks_unavailable")
         # An unknown kid: refetch once, or wait for a discovery already under way, which may bring it.
         with self._lock:
-            now = self._clock()
+            now = self._read_clock()
             jwk = self._keys.get(kid) if self._keys else None
             flight, lead = self._flight_for(now, refetch=True) if jwk is None else (None, False)
         if flight is not None:
@@ -344,18 +455,18 @@ class Verifier:
         with self._lock:
             jwk = self._keys.get(kid) if self._keys else None
             # The clock again, after any wait: a discovery that expired during its fetch is unavailable.
-            at = self._clock()
+            at = self._read_clock()
             if (self._md_max_age > 0 and at - self._md_fetched_at >= self._md_max_age) \
                     or (self._max_age > 0 and at - self._fetched_at >= self._max_age):
                 raise VerificationError("jwks_unavailable")
             return jwk
 
     def verify(self, *, method: str, url: str, body: Union[bytes, str], assertion: Optional[str]) -> dict[str, Any]:
-        """Verify one request's assertion and return the identity to authorize against, or raise VerificationError."""
+        """Return the verified identity. Ordered refusals use VerificationError. Callback and store errors may propagate."""
         parts = (assertion or "").split(".")
         if len(parts) != 3:
             raise VerificationError("malformed")
-        header = _object(_b64url(parts[0]))
+        header = _object(_b64url(parts[0]), assertion=True)
         if header.get("typ") != TYP:
             raise VerificationError("typ")
         alg = header.get("alg")
@@ -378,9 +489,9 @@ class Verifier:
         except (InvalidSignature, ValueError, TypeError, VerificationError) as e:
             # Any failure to build the published key, or to verify under it, is a signature failure, as in JS.
             raise VerificationError("signature") from e
-        c = _object(_b64url(parts[1]))
+        c = _object(_b64url(parts[1]), assertion=True)
         # The clock again, after any key-set wait: the time checks and the replay record's lifetime use it.
-        at = self._clock()
+        at = self._read_clock()
 
         def s(k: str) -> Optional[str]:
             return c[k] if isinstance(c.get(k), str) else None
@@ -396,11 +507,11 @@ class Verifier:
             return v
 
         iat, exp = n("iat"), n("exp")
-        raw = body.encode() if isinstance(body, str) else bytes(body)
-        bdy = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
+        raw = body if isinstance(body, str) else bytes(body)
         if s("iss") != self._issuer:
             raise VerificationError("iss")
-        if n("ver") not in SUPPORTED_VERSIONS:
+        ver = n("ver")
+        if ver is None or ver not in SUPPORTED_VERSIONS:
             raise VerificationError("ver")
         if s("adopter") != self._adopter:
             raise VerificationError("adopter")
@@ -416,6 +527,12 @@ class Verifier:
             raise VerificationError("htm")
         if s("htu") != self._request_url(url):
             raise VerificationError("htu")
+        if isinstance(raw, str):
+            try:
+                raw = str.encode(raw)
+            except UnicodeEncodeError:
+                raise VerificationError("bdy") from None
+        bdy = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
         if s("bdy") != bdy:
             raise VerificationError("bdy")
         jti, tenant = s("jti"), s("tenant")
@@ -433,7 +550,7 @@ class Verifier:
 
         sub_id = iss_sub(c["sub_id"]) if "sub_id" in c else None
         # A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty
-        # string and sub_id an exact iss_sub, beside a run_id, whatever the version or act_kind.
+        # string and sub_id an exact iss_sub, beside a run_id, whatever the act_kind.
         run_owner: Optional[dict[str, Any]] = None
         if "run_owner" in c:
             v = c["run_owner"]
@@ -444,10 +561,16 @@ class Verifier:
             run_owner = {"sub": v["sub"]}
             if "sub_id" in v:
                 run_owner["sub_id"] = iss_sub(v["sub_id"])
+        act_kind = s("act_kind")
+        # A kind or claim newer than the signed claim set is malformed: discovery and on_behalf need 5, watch_run and
+        # run_owner 6.
+        if ((ver < 5 and act_kind in ("discovery", "on_behalf"))
+                or (ver < 6 and (act_kind == "watch_run" or run_owner is not None))):
+            raise VerificationError("malformed")
         # A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
         # carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
         actor: Optional[dict[str, str]] = None
-        if ("act" in c) != (s("act_kind") == "on_behalf"):
+        if ("act" in c) != (act_kind == "on_behalf"):
             raise VerificationError("malformed")
         if "act" in c:
             v = c["act"]
@@ -456,6 +579,8 @@ class Verifier:
                     or not isinstance(v.get("iss"), str) or not v["iss"]):
                 raise VerificationError("malformed")
             actor = {"sub": v["sub"], "iss": v["iss"]}
+        if "approved_by" in c and not _is_approval_chain(c["approved_by"]):
+            raise VerificationError("malformed")
         # LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
         # The record lives through the last accepted second, exp + 60 s inclusive: whole seconds, at least 1.
         if not self._store.set_if_absent(f"{self._issuer}\0{jti}", exp + _SKEW - at + 1, at):

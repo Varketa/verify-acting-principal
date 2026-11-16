@@ -1,6 +1,7 @@
 // @varketa/verify-acting-principal: verify the Varketa-Acting-Principal header, claim set versions 3, 4, 5 and 6.
 // The normative half is ../../SPEC.md and ../../vectors/v6; this file follows the spec's order.
 import { createHash, createPublicKey, verify as verifySignature, type KeyObject } from "node:crypto";
+import { toUSVString } from "node:util";
 
 export const HEADER = "Varketa-Acting-Principal";
 export const TYP = "varketa-acting-principal+jwt";
@@ -17,6 +18,10 @@ const MAX_CACHE = 300;
 const REFETCH_INTERVAL = 60;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
+const MAX_ASSERTION_DEPTH = 32;
+const MAX_APPROVAL_LINKS = 8;
+// Unicode 17.0 White_Space, pinned to keep the wire rule independent of runtime trim behavior.
+const NON_WHITESPACE = /[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u;
 export const METADATA_PATH = "/.well-known/varketa-acting-principal";
 
 /** One code per refusal, in the spec's order. */
@@ -41,6 +46,7 @@ export type FetchDocument = (url: string) => Promise<FetchedDocument>;
  * The replay record. `setIfAbsent` inserts `key` with a time to live and reports whether THIS call inserted it, in one
  * atomic step: of two concurrent calls with one key, exactly one returns true. Never implement it as a read followed
  * by a write.
+ * Return false only for a conflict. Throw if the result is unknown, including when a write loses its acknowledgement.
  */
 export interface ReplayStore { setIfAbsent(key: string, ttlSeconds: number, now: number): Promise<boolean> }
 
@@ -74,7 +80,7 @@ export interface Options {
   audience: string;
   /** Required: no silent default (see InMemoryReplayStore). */
   replayStore: ReplayStore;
-  /** Seconds since the epoch. Defaults to the system clock. */
+  /** Finite seconds since the epoch. Defaults to the system clock. */
   clock?: () => number;
   fetchDocument?: FetchDocument;
   /** Maps the URL as received to the URL the caller sent, after this API's own proxies. Defaults to identity. */
@@ -99,10 +105,13 @@ export interface Identity {
 
 export interface Request { method: string; url: string; body: Uint8Array | string; assertion: string | null | undefined }
 
-// A bounded fetch: no redirect, 10 s for the whole fetch (the signal aborts the body's read too, so a dripping answer is
-// cut off), and at most 64 KiB, so a stalled, dripping or oversized issuer answer fails closed (SPEC §2.5).
+// A bounded fetch: no redirect, 10 s for the whole document, and at most 64 KiB (SPEC §2.5).
 const defaultFetch: FetchDocument = async (url) => {
-  const r = await fetch(url, { redirect: "error", headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  const deadline = performance.now() + FETCH_TIMEOUT_MS;
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) throw new Error(`${url}: no time left to fetch`);
+  const signal = AbortSignal.timeout(Math.ceil(remaining));
+  const r = await fetch(url, { redirect: "error", headers: { accept: "application/json" }, signal });
   const chunks: Uint8Array[] = [];
   let size = 0;
   for await (const chunk of r.body ?? []) {
@@ -110,8 +119,11 @@ const defaultFetch: FetchDocument = async (url) => {
     if (size > MAX_DOCUMENT_BYTES) throw new Error(`${url}: document over ${MAX_DOCUMENT_BYTES} bytes`);
     chunks.push(chunk);
   }
-  return { status: r.status, cacheControl: r.headers.get("cache-control"),
+  const document = { status: r.status, cacheControl: r.headers.get("cache-control"),
     body: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)) };
+  // The abort timer can still be waiting to run when the stream completes.
+  if (performance.now() >= deadline) throw new Error(`${url}: no complete answer within ${FETCH_TIMEOUT_MS} ms`);
+  return document;
 };
 
 function maxAge(cacheControl: string | null): number {
@@ -125,14 +137,71 @@ function b64url(s: string): Buffer {
   return Buffer.from(s, "base64url");
 }
 
-function json(b: Buffer): Record<string, unknown> {
+// Bound native parser nesting. The native parser still checks JSON syntax.
+function hasBoundedAssertionDepth(text: string): boolean {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === "{" || ch === "[") {
+      if (++depth > MAX_ASSERTION_DEPTH) return false;
+    } else if (ch === "}" || ch === "]") {
+      depth--;
+    }
+  }
+  return true;
+}
+
+// After JSON syntax validation, every backslash begins an escape inside a string.
+// Scan the source so a duplicate name cannot hide a malformed earlier value.
+function hasScalarEscapes(text: string): boolean {
+  let offset = 0;
+  while (true) {
+    offset = text.indexOf("\\", offset);
+    if (offset === -1) return true;
+    if (text[offset + 1] !== "u") {
+      offset += 2;
+      continue;
+    }
+    const unit = Number.parseInt(text.slice(offset + 2, offset + 6), 16);
+    offset += 6;
+    if (unit < 0xd800 || unit > 0xdfff) continue;
+    if (unit >= 0xdc00 || !text.startsWith("\\u", offset)) return false;
+    const low = Number.parseInt(text.slice(offset + 2, offset + 6), 16);
+    if (low < 0xdc00 || low > 0xdfff) return false;
+    offset += 6;
+  }
+}
+
+function json(b: Buffer, kind: "document" | "assertion" = "document"): Record<string, unknown> {
   try {
-    const v = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(b));
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(b);
+    if (kind === "assertion" && !hasBoundedAssertionDepth(text)) throw new Error();
+    const v = JSON.parse(text);
     if (v === null || typeof v !== "object" || Array.isArray(v)) throw new Error();
+    if (kind === "assertion" && !hasScalarEscapes(text)) throw new Error();
     return v as Record<string, unknown>;
   } catch {
     throw new VerificationError("malformed");
   }
+}
+
+function isApprovalChain(link: unknown): boolean {
+  for (let i = 0; i < MAX_APPROVAL_LINKS; i++) {
+    if (link === null || typeof link !== "object" || Array.isArray(link)) return false;
+    const value = link as Record<string, unknown>;
+    if (!Object.hasOwn(value, "sub") || typeof value.sub !== "string" || !NON_WHITESPACE.test(value.sub)) return false;
+    const hasNext = Object.hasOwn(value, "act");
+    if (Object.keys(value).length !== (hasNext ? 2 : 1)) return false;
+    if (!hasNext) return true;
+    link = value.act;
+  }
+  return false;
 }
 
 export class Verifier {
@@ -175,25 +244,33 @@ export class Verifier {
   }
 
   async #reload(now: number): Promise<boolean> {
-    if (this.#jwksUri === "" || now - this.#mdFetchedAt >= this.#mdMaxAge) {
+    let jwksUri = this.#jwksUri;
+    let metadataMaxAge: number | undefined;
+    if (jwksUri === "" || now - this.#mdFetchedAt >= this.#mdMaxAge) {
       const md = await this.#get(this.#o.issuer + METADATA_PATH);
       if (!md) return false;
       let doc: Record<string, unknown>;
       try { doc = json(Buffer.from(md.body)); } catch { return false; }
       if (doc.issuer !== this.#o.issuer || typeof doc.jwks_uri !== "string" || !doc.jwks_uri.startsWith("https://")) return false;
-      this.#jwksUri = doc.jwks_uri;
-      this.#mdFetchedAt = now;
-      this.#mdMaxAge = maxAge(md.cacheControl);
+      jwksUri = doc.jwks_uri;
+      metadataMaxAge = maxAge(md.cacheControl);
     }
-    const r = await this.#get(this.#jwksUri);
+    const r = await this.#get(jwksUri);
     let keys: unknown;
     try { keys = r && json(Buffer.from(r.body)).keys; } catch { keys = undefined; }
-    // A failed key-set fetch leaves the cache as it was: a fresh set stays usable until its max-age (SPEC §2.3 refuses only
-    // after expiry), so an unknown kid's refetch against a failing issuer cannot discard it.
+    // Publish refreshed metadata only with the key set fetched through it. Failure leaves the prior snapshot intact,
+    // including its expiry. An unknown kid's failed refetch therefore leaves an unexpired snapshot usable (SPEC §2.3).
     if (!r || !Array.isArray(keys)) return false;
-    this.#keys = new Map(keys.filter((k) => k && typeof k.kid === "string").map((k) => [k.kid as string, k]));
+    const keyMap = new Map(keys.filter((k) => k && typeof k.kid === "string").map((k) => [k.kid as string, k]));
+    const keyMaxAge = maxAge(r.cacheControl);
+    if (metadataMaxAge !== undefined) {
+      this.#jwksUri = jwksUri;
+      this.#mdFetchedAt = now;
+      this.#mdMaxAge = metadataMaxAge;
+    }
+    this.#keys = keyMap;
     this.#fetchedAt = now;
-    this.#maxAge = maxAge(r.cacheControl);
+    this.#maxAge = keyMaxAge;
     return true;
   }
 
@@ -206,12 +283,18 @@ export class Verifier {
     }
   }
 
-  /** Verifies one request's assertion and returns the identity to authorize against, or throws VerificationError. */
-  async verify(req: Request): Promise<Identity> {
+  #readClock(): number {
     const now = this.#clock();
+    if (!Number.isFinite(now)) throw new Error("verify-acting-principal: clock must return finite epoch seconds");
+    return now;
+  }
+
+  /** Returns the verified identity. Ordered refusals use VerificationError. Callback and store errors may propagate. */
+  async verify(req: Request): Promise<Identity> {
+    const now = this.#readClock();
     const parts = (req.assertion ?? "").split(".");
     if (parts.length !== 3) throw new VerificationError("malformed");
-    const header = json(b64url(parts[0]));
+    const header = json(b64url(parts[0]), "assertion");
     if (header.typ !== TYP) throw new VerificationError("typ");
     const alg = typeof header.alg === "string" ? ALGORITHMS[header.alg] : undefined;
     if (!alg || !Object.hasOwn(ALGORITHMS, header.alg as string)) throw new VerificationError("alg");
@@ -231,7 +314,7 @@ export class Verifier {
       if (await this.#load(now)) jwk = this.#keys?.get(kid);
     }
     // A network wait may itself consume the documents' positive cache lifetime.
-    const keyAt = this.#clock();
+    const keyAt = this.#readClock();
     if ((this.#mdMaxAge > 0 && keyAt - this.#mdFetchedAt >= this.#mdMaxAge) ||
         (this.#maxAge > 0 && keyAt - this.#fetchedAt >= this.#maxAge)) throw new VerificationError("jwks_unavailable");
     if (!jwk) throw new VerificationError("kid");
@@ -255,16 +338,19 @@ export class Verifier {
       ? verifySignature(null, signed, key, sig)
       : verifySignature(alg.hash, signed, { key, dsaEncoding: "ieee-p1363" }, sig);
     if (!ok) throw new VerificationError("signature");
-    const c = json(b64url(parts[1]));
+    const c = json(b64url(parts[1]), "assertion");
     // The clock again, after any key-set wait: the time checks and the replay record's lifetime use it.
-    const at = this.#clock();
+    const at = this.#readClock();
     const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);
     // Integers only: a fractional ver, iat or exp is not truncated to a known value; it is absent.
     const num = (k: string) => (Number.isSafeInteger(c[k]) ? (c[k] as number) : undefined);
     const iat = num("iat"), exp = num("exp");
-    const body = typeof req.body === "string" ? Buffer.from(req.body, "utf8") : Buffer.from(req.body);
+    // Snapshot caller-owned bytes before requestUrl can run. Judge text encoding at the body check.
+    const suppliedBody = req.body;
+    const body = typeof suppliedBody === "string" ? suppliedBody : Buffer.from(suppliedBody);
     if (str("iss") !== this.#o.issuer) throw new VerificationError("iss");
-    if (!SUPPORTED_VERSIONS.includes(num("ver") ?? NaN)) throw new VerificationError("ver");
+    const ver = num("ver");
+    if (ver === undefined || !SUPPORTED_VERSIONS.includes(ver)) throw new VerificationError("ver");
     if (str("adopter") !== this.#o.adopter) throw new VerificationError("adopter");
     if (str("aud") !== this.#o.audience) throw new VerificationError("aud");
     if (iat === undefined || iat > at + SKEW) throw new VerificationError("not_yet_valid");
@@ -272,7 +358,9 @@ export class Verifier {
     if (exp - iat > MAX_LIFETIME) throw new VerificationError("lifetime");
     if (str("htm") !== req.method) throw new VerificationError("htm");
     if (str("htu") !== this.#requestUrl(req.url)) throw new VerificationError("htu");
-    if (str("bdy") !== createHash("sha256").update(body).digest("base64url")) throw new VerificationError("bdy");
+    if (typeof body === "string" && toUSVString(body) !== body) throw new VerificationError("bdy");
+    const raw = typeof body === "string" ? Buffer.from(body, "utf8") : body;
+    if (str("bdy") !== createHash("sha256").update(raw).digest("base64url")) throw new VerificationError("bdy");
     const jti = str("jti"), tenant = str("tenant");
     // The claims Varketa never omits and an API authorizes on: the jti, the tenant, and the subject or grant.
     if (!jti || !tenant || (!str("sub") && !str("grant"))) throw new VerificationError("malformed");
@@ -288,7 +376,7 @@ export class Verifier {
     };
     const subId = Object.hasOwn(c, "sub_id") ? issSub(c.sub_id) : undefined;
     // A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty string
-    // and sub_id an exact iss_sub, beside a run_id, whatever the version or act_kind.
+    // and sub_id an exact iss_sub, beside a run_id, whatever the act_kind.
     let runOwner: RunOwner | undefined;
     if (Object.hasOwn(c, "run_owner")) {
       const v = c.run_owner as Record<string, unknown> | null;
@@ -299,10 +387,14 @@ export class Verifier {
       runOwner = { sub: v.sub };
       if (Object.hasOwn(v, "sub_id")) runOwner.sub_id = issSub(v.sub_id);
     }
+    const actKind = str("act_kind");
+    // A kind or claim newer than the signed claim set is malformed: discovery and on_behalf need 5, watch_run and run_owner 6.
+    if ((ver < 5 && (actKind === "discovery" || actKind === "on_behalf"))
+      || (ver < 6 && (actKind === "watch_run" || runOwner !== undefined))) throw new VerificationError("malformed");
     // A PRESENT act is exactly RFC 8693's {sub, iss}, both non-empty strings, and on_behalf is the one act_kind that
     // carries it and must: a verifier never exposes half an actor, nor an actor on a kind that has none.
     let actor: Actor | undefined;
-    if (Object.hasOwn(c, "act") !== (str("act_kind") === "on_behalf")) throw new VerificationError("malformed");
+    if (Object.hasOwn(c, "act") !== (actKind === "on_behalf")) throw new VerificationError("malformed");
     if (Object.hasOwn(c, "act")) {
       const v = c.act as Record<string, unknown> | null;
       if (typeof v !== "object" || v === null || Array.isArray(v) || Object.keys(v).length !== 2
@@ -311,9 +403,17 @@ export class Verifier {
       }
       actor = { sub: v.sub, iss: v.iss };
     }
+    const hasApproval = Object.hasOwn(c, "approved_by");
+    if (hasApproval && !isApprovalChain(c.approved_by)) throw new VerificationError("malformed");
     // LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
-    // The record lives through the last accepted second, exp + 60 s inclusive: a whole number of seconds, at least 1.
-    if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, exp + SKEW - at + 1, at))) {
+    // The exclusive expiry must lie past the inclusive cutoff, including when floating-point addition rounds.
+    const cutoff = exp + SKEW;
+    const ttl = cutoff - at + 1;
+    const expiry = at + ttl;
+    if (!Number.isFinite(ttl) || !Number.isFinite(expiry) || expiry <= cutoff) {
+      throw new Error("verify-acting-principal: replay expiry cannot outlast the assertion");
+    }
+    if (!(await this.#o.replayStore.setIfAbsent(`${this.#o.issuer}\u0000${jti}`, ttl, at))) {
       throw new VerificationError("replay");
     }
     const id: Identity = { tenant, adopter: this.#o.adopter };
@@ -322,7 +422,7 @@ export class Verifier {
       if (v !== undefined) id[k] = v;
     }
     if (Array.isArray(c.scopes)) id.scopes = c.scopes.filter((s): s is string => typeof s === "string");
-    if (c.approved_by !== undefined) id.approved_by = c.approved_by;
+    if (hasApproval) id.approved_by = c.approved_by;
     if (c.probe === true) id.probe = true;
     if (subId) id.sub_id = subId;
     if (actor) id.act = actor;
