@@ -754,6 +754,37 @@ test("a request for a rotated-in kid waits for the refetch another request alrea
   assert.equal(h.counts.get(jwksUrl), 2, "one refetch, shared");
 });
 
+test("an unknown kid's refetch floor is measured from after a load it waited on", async () => {
+  // The cache is stale at the third request, and its expiry load takes 5 s. The floor is measured from the clock after
+  // that load, as the Python verifier reads it under its lock: 17 s after the first unknown-kid refetch, so this
+  // unknown kid refetches. Measured from the request's start, 12 s, it would not.
+  const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+  for (const rs of Object.values(c.fetches)) for (const r of rs) r.cache_control = "max-age=12";
+  const s = c.steps[0];
+  const counts = new Map<string, number>();
+  let now = s.now;
+  const v = new Verifier({
+    ...manifest.config, replayStore: new InMemoryReplayStore({ singleInstance: true }), clock: () => now,
+    fetchDocument: async (url: string): Promise<FetchedDocument> => {
+      const i = counts.get(url) ?? 0;
+      counts.set(url, i + 1);
+      if (url === jwksUrl && i === 2) now += 5;
+      const rs = c.fetches[url], r = rs[Math.min(i, rs.length - 1)];
+      return { status: r.status, cacheControl: r.cache_control ?? null, body: JSON.stringify(r.body) };
+    },
+  });
+  const req = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url") };
+  await v.verify({ ...req, assertion: s.assertion });
+  const claims = JSON.parse(Buffer.from(s.assertion.split(".")[1], "base64url").toString("utf8"));
+  const stranger = signer("never-published");
+  now = s.now + 1;
+  await assert.rejects(v.verify({ ...req, assertion: stranger.sign({ ...claims, jti: "jti-a" }) }), { code: "kid" });
+  assert.equal(counts.get(jwksUrl), 2);
+  now = s.now + 13;
+  await assert.rejects(v.verify({ ...req, assertion: stranger.sign({ ...claims, jti: "jti-b" }) }), { code: "kid" });
+  assert.equal(counts.get(jwksUrl), 4, "the expiry load, then a refetch measured from after it");
+});
+
 test("max-age follows HTTP's grammar: space or tab, ASCII digits", async () => {
   // A cacheable answer is fetched once for two assertions; an uncacheable one (max-age absent: 0) is fetched again.
   const previous: Case = JSON.parse(readFileSync(join(dir, "cases", "previous-key.json"), "utf8"));
