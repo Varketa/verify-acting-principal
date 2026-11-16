@@ -130,7 +130,7 @@ An accepted assertion exposes:
   Its `sub` is the subject this adopter receives as `sub` on that person's own acts. Its `sub_id` is your own subject
   for the run-as grant, an exact `iss_sub` as below, present only where Varketa holds one. A present `run_owner` has
   exactly those members, `sub` a non-empty string, and only beside a `run_id`, or the assertion is refused `malformed`
-  (check 17), whatever the `ver` or `act_kind`.
+  (check 17), whatever the `act_kind`; below claim set 6 any `run_owner` is refused the same way.
 - `sub_id` (claim set 4): the acting person as YOUR identity provider names them, an
   [RFC 9493](https://www.rfc-editor.org/rfc/rfc9493) subject identifier `{"format": "iss_sub", "iss": "<your IdP's
   issuer>", "sub": "<its subject>"}`. It is present when Varketa holds the acting grant's subject at your provider
