@@ -44,6 +44,12 @@ _MAX_SAFE_INTEGER = 2**53 - 1
 _MAX_LIFETIME = 120
 _MAX_CACHE = 300
 _REFETCH_INTERVAL = 15
+
+
+def _within_floor(now: int, start: int) -> bool:
+    """Whether now is within the refetch floor of a discovery that started at start. A clock that has stepped back
+    before start is not within it, so a wall-clock correction never holds the floor shut (SPEC §2.3, §2.4)."""
+    return start <= now < start + _REFETCH_INTERVAL
 _FETCH_TIMEOUT = 10
 _MAX_DOCUMENT_BYTES = 64 * 1024
 _MAX_ASSERTION_DEPTH = 32
@@ -415,7 +421,7 @@ class Verifier:
         if self._flight is not None:
             return self._flight, False
         if refetch:
-            if self._last_refetch is not None and now - self._last_refetch < _REFETCH_INTERVAL:
+            if self._last_refetch is not None and _within_floor(now, self._last_refetch):
                 return None, False
             self._last_refetch = now
         self._flight = _Flight()
@@ -446,7 +452,7 @@ class Verifier:
             now = self._read_clock()
             stale = self._stale(now)
             backing_off = stale and self._flight is None and self._failed_at is not None \
-                and now - self._failed_at < _REFETCH_INTERVAL
+                and _within_floor(now, self._failed_at)
             flight, lead = self._flight_for(now, refetch=False) if stale and not backing_off else (None, False)
         if backing_off:
             raise VerificationError("jwks_unavailable")

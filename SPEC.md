@@ -40,9 +40,10 @@ It also REQUIRES a replay store (§5). There is no silent default.
 4. On a `kid` the cached set lacks, refetch the set unless a refetch for an unknown `kid` started less than 15 s
    earlier (for any `kid`, whether or not it succeeded), and refuse a `kid` the set still lacks (`kid`). A refetch
    already in flight is joined, not repeated. The `kid` is read before the signature is checked, so any caller can
-   start this refetch: the 15 s floor bounds the issuer's load to one such fetch per 15 s per verifier, and, because
-   each refetch reads the issuer's current set, bounds to 15 s the time a newly published key can be refused,
-   whatever else arrives.
+   start this refetch: the 15 s floor bounds these refetches to one per 15 s per verifier, and, because each
+   refetch reads the issuer's current set, bounds to 15 s the time a newly published key can be refused. A clock
+   that reads earlier than a floor's start is outside it, here and in §2.3, so a clock stepped back never holds a
+   floor shut.
 5. Do not follow a redirect, and bound each fetch as a whole, not each read (the libraries use 10 s and 64 KiB): a
    stalled, dripping or oversized answer is a failed fetch. Fetch outside any lock a verification of a cached key
    would wait on, so one slow issuer answer delays only the verifications that need it.

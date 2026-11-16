@@ -1116,6 +1116,132 @@
           "input": "throwaway-kid"
         }
       ]
+    },
+    {
+      "name": "a-clock-stepped-back-is-outside-the-unknown-kid-floor",
+      "fetches": {
+        "https://issuer.example/.well-known/varketa-acting-principal": [
+          "metadata"
+        ],
+        "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+          "jwks",
+          "jwks",
+          "jwks-rotated"
+        ]
+      },
+      "steps": [
+        {
+          "now": 1767225620,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
+            }
+          },
+          "label": "a cached key is accepted",
+          "input": "good"
+        },
+        {
+          "now": 1767225621,
+          "expect": {
+            "accept": false,
+            "code": "kid",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 2
+            }
+          },
+          "label": "an unsigned unknown kid spends the refetch; the set is unchanged",
+          "input": "throwaway-kid"
+        },
+        {
+          "now": 1767225590,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 3
+            }
+          },
+          "label": "a clock stepped back before the refetch is outside its floor: the rotated-in key is fetched and accepted",
+          "input": "rotated-in"
+        }
+      ]
+    },
+    {
+      "name": "a-clock-stepped-back-is-outside-the-failed-discovery-floor",
+      "fetches": {
+        "https://issuer.example/.well-known/varketa-acting-principal": [
+          "metadata-wrong-issuer",
+          "metadata"
+        ],
+        "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+          "jwks"
+        ]
+      },
+      "steps": [
+        {
+          "now": 1767225610,
+          "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "refuses before fetching keys",
+          "input": "good"
+        },
+        {
+          "now": 1767225600,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 2,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
+            }
+          },
+          "label": "a clock stepped back before the failed discovery is outside its floor: discovery runs again and accepts",
+          "input": "good"
+        }
+      ]
     }
   ]
 }

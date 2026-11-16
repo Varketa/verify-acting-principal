@@ -16,6 +16,9 @@ const SKEW = 60;
 const MAX_LIFETIME = 120;
 const MAX_CACHE = 300;
 const REFETCH_INTERVAL = 15;
+// Whether now is within the refetch floor of a discovery that started at `start`. A clock that has stepped back before
+// start is not within it, so a wall-clock correction never holds the floor shut (SPEC §2.3, §2.4).
+const withinFloor = (now: number, start: number) => now >= start && now - start < REFETCH_INTERVAL;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
 const MAX_ASSERTION_DEPTH = 32;
@@ -302,7 +305,7 @@ export class Verifier {
     const alg = typeof header.alg === "string" ? ALGORITHMS[header.alg] : undefined;
     if (!alg || !Object.hasOwn(ALGORITHMS, header.alg as string)) throw new VerificationError("alg");
     if (this.#keys === null || now - this.#fetchedAt >= this.#maxAge || now - this.#mdFetchedAt >= this.#mdMaxAge) {
-      if (!this.#loading && this.#failedAt !== null && now - this.#failedAt < REFETCH_INTERVAL) {
+      if (!this.#loading && this.#failedAt !== null && withinFloor(now, this.#failedAt)) {
         throw new VerificationError("jwks_unavailable");
       }
       if (!(await this.#load(now))) throw new VerificationError("jwks_unavailable");
@@ -319,7 +322,7 @@ export class Verifier {
     // taken up to its fetch bound, and the floor and the fetch's own time are measured from now (SPEC §2.4).
     if (!jwk) {
       const refetchAt = this.#readClock();
-      if (this.#lastRefetch === null || refetchAt - this.#lastRefetch >= REFETCH_INTERVAL) {
+      if (this.#lastRefetch === null || !withinFloor(refetchAt, this.#lastRefetch)) {
         this.#lastRefetch = refetchAt;
         if (await this.#load(refetchAt)) jwk = this.#keys?.get(kid);
       }
