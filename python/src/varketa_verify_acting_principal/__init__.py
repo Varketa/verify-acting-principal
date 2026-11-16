@@ -355,6 +355,9 @@ class Verifier:
         self._keys: Optional[dict[str, dict[str, Any]]] = None
         self._fetched_at = self._max_age = 0
         self._last_refetch: Optional[int] = None
+        # The start of the last discovery that failed, None after one succeeds: a stale cache starts no new discovery for
+        # the refetch floor after it (SPEC §2.3), so an issuer outage costs one fetch per floor, not one per request.
+        self._failed_at: Optional[int] = None
         # The discovery in flight, if any: fetched outside the lock, so a slow issuer never holds a verify whose key
         # is cached, and shared, so concurrent verifies that need it wait on one fetch.
         self._flight: Optional[_Flight] = None
@@ -428,6 +431,7 @@ class Verifier:
         finally:
             with self._lock:
                 self._flight = None
+                self._failed_at = None if flight.ok else now
             flight.done.set()
 
     def _read_clock(self) -> int:
@@ -440,7 +444,12 @@ class Verifier:
         # A stale cache: one discovery serves every verify that needs it, and a failed one refuses them all.
         with self._lock:
             now = self._read_clock()
-            flight, lead = self._flight_for(now, refetch=False) if self._stale(now) else (None, False)
+            stale = self._stale(now)
+            backing_off = stale and self._flight is None and self._failed_at is not None \
+                and now - self._failed_at < _REFETCH_INTERVAL
+            flight, lead = self._flight_for(now, refetch=False) if stale and not backing_off else (None, False)
+        if backing_off:
+            raise VerificationError("jwks_unavailable")
         if flight is not None:
             self._fly(flight, lead, now)
             if not flight.ok:

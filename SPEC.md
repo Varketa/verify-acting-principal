@@ -33,7 +33,10 @@ It also REQUIRES a replay store (§5). There is no silent default.
    Never fix the key path; it can move.
 2. Fetch the JWK Set from `jwks_uri`. It holds the current key and, during a rotation, a second key. Both verify.
 3. Cache each document for at most its `Cache-Control` max-age, capped at 300 s, and never past it. A refetch that
-   fails after expiry refuses EVERY assertion (`jwks_unavailable`): no stale-if-error.
+   fails after expiry refuses EVERY assertion (`jwks_unavailable`): no stale-if-error. After a discovery fails, start
+   no new one for 15 s from that discovery's start, though one already in flight is joined. A verification that
+   needs one in that time is refused (`jwks_unavailable`) without a fetch, so an issuer outage costs one fetch per
+   15 s per verifier, not one per request. A discovery that succeeds ends the floor.
 4. On a `kid` the cached set lacks, refetch the set unless a refetch for an unknown `kid` started less than 15 s
    earlier (for any `kid`, whether or not it succeeded), and refuse a `kid` the set still lacks (`kid`). A refetch
    already in flight is joined, not repeated. The `kid` is read before the signature is checked, so any caller can

@@ -216,6 +216,9 @@ export class Verifier {
   #fetchedAt = 0;
   #maxAge = 0;
   #lastRefetch: number | null = null;
+  // The start of the last discovery that failed, null after one succeeds: a stale cache starts no new discovery for the
+  // refetch floor after it (SPEC §2.3), so an issuer outage costs one fetch per floor, not one per request.
+  #failedAt: number | null = null;
   #loading: Promise<boolean> | null = null;
 
   constructor(options: Options) {
@@ -239,7 +242,7 @@ export class Verifier {
   async #load(now: number): Promise<boolean> {
     // Concurrent requests share one discovery transaction, so an older key fetch cannot overwrite a newer one.
     if (this.#loading) return this.#loading;
-    this.#loading = this.#reload(now);
+    this.#loading = this.#reload(now).then((ok) => { this.#failedAt = ok ? null : now; return ok; });
     try { return await this.#loading; } finally { this.#loading = null; }
   }
 
@@ -299,6 +302,9 @@ export class Verifier {
     const alg = typeof header.alg === "string" ? ALGORITHMS[header.alg] : undefined;
     if (!alg || !Object.hasOwn(ALGORITHMS, header.alg as string)) throw new VerificationError("alg");
     if (this.#keys === null || now - this.#fetchedAt >= this.#maxAge || now - this.#mdFetchedAt >= this.#mdMaxAge) {
+      if (!this.#loading && this.#failedAt !== null && now - this.#failedAt < REFETCH_INTERVAL) {
+        throw new VerificationError("jwks_unavailable");
+      }
       if (!(await this.#load(now))) throw new VerificationError("jwks_unavailable");
     }
     const kid = typeof header.kid === "string" ? header.kid : "";

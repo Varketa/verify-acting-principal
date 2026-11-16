@@ -340,6 +340,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -358,7 +370,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -393,6 +405,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -411,7 +435,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -443,6 +467,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -461,7 +497,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -493,6 +529,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -511,7 +559,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -809,9 +857,23 @@
           }
         },
         {
-          "label": "refuses a distinct eligible old-key request and retries discovery",
+          "label": "refuses a distinct eligible old-key request within the floor, fetching nothing",
           "input": "exp-within-skew",
           "now": 1767225611,
+          "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 2,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/replacement-jwks.json": 1
+            }
+          }
+        },
+        {
+          "label": "retries discovery once past the floor, and fails again",
+          "input": "exp-within-skew",
+          "now": 1767225626,
           "expect": {
             "accept": false,
             "code": "jwks_unavailable",
@@ -825,7 +887,7 @@
         {
           "label": "uses keys from the recovered metadata and key set",
           "input": "previous-key",
-          "now": 1767225612,
+          "now": 1767225641,
           "expect": {
             "accept": true,
             "identity": {
@@ -902,9 +964,22 @@
           }
         },
         {
-          "label": "refuses a distinct eligible old-key request and retries discovery",
+          "label": "refuses a distinct eligible old-key request within the floor, fetching nothing",
           "input": "exp-within-skew",
           "now": 1767225611,
+          "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 2,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 2
+            }
+          }
+        },
+        {
+          "label": "retries discovery once past the floor, and fails again",
+          "input": "exp-within-skew",
+          "now": 1767225626,
           "expect": {
             "accept": false,
             "code": "jwks_unavailable",
@@ -917,7 +992,7 @@
         {
           "label": "uses keys from the recovered metadata and key set",
           "input": "previous-key",
-          "now": 1767225612,
+          "now": 1767225641,
           "expect": {
             "accept": true,
             "identity": {

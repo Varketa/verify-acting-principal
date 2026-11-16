@@ -374,9 +374,12 @@ test("the default fetch refuses invalid UTF-8 and oversized documents, then reco
         return new Response(fail && String(url) === metadataUrl ? invalid : JSON.stringify(r.body),
           { status: 200, headers: { "cache-control": "max-age=300" } });
       };
-      const v = new Verifier({ ...manifest.config, clock: () => s.now, replayStore: new InMemoryReplayStore({ singleInstance: true }) });
+      // The recovery is past the failed discovery's 15 s floor (SPEC §2.3), inside the assertion's lifetime.
+      let now = s.now;
+      const v = new Verifier({ ...manifest.config, clock: () => now, replayStore: new InMemoryReplayStore({ singleInstance: true }) });
       await assert.rejects(v.verify(req), (e) => e instanceof VerificationError && e.code === "jwks_unavailable");
       fail = false;
+      now = s.now + 15;
       assert.equal((await v.verify(req)).tenant, s.expect.identity?.tenant);
     }
   } finally { globalThis.fetch = originalFetch; }
