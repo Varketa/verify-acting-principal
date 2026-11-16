@@ -31,6 +31,22 @@
         "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
       },
       "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLWN1cnJlbnQiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktZXhwLWluLXNrZXciLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiaW50ZXJhY3RpdmUiLCJzY29wZV9pZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInNjb3BlcyI6WyJyZWNvcmRzLnJlYWQiLCJyZWNvcmRzLndyaXRlIl0sInN1YiI6InVzZXItNyIsInRlbmFudCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInRvb2xfZGVjbGFyZWQiOiJjcmVhdGVfcmVjb3JkIiwidG9vbF9xdWFsaWZpZWQiOiJyMS1yZWNvcmRzLWNyZWF0ZV9yZWNvcmQiLCJ2ZXIiOjV9.CE5xeItBVxW5aJmBYsEnNM4XhzRlVXqnzYyKpu662NI6GmZQzRfUXyavo4E3gZKUvGAmBpCMxEi-JXTSXidR3g"
+    },
+    "rotated-in": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLW5leHQiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzQwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MjAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktbmV4dCIsInBlcnNvbmEiOiJzdXBwb3J0IiwicHJlc2VuY2UiOiJpbnRlcmFjdGl2ZSIsInNjb3BlX2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGVzIjpbInJlY29yZHMucmVhZCIsInJlY29yZHMud3JpdGUiXSwic3ViIjoidXNlci03IiwidGVuYW50IjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwidG9vbF9kZWNsYXJlZCI6ImNyZWF0ZV9yZWNvcmQiLCJ0b29sX3F1YWxpZmllZCI6InIxLXJlY29yZHMtY3JlYXRlX3JlY29yZCIsInZlciI6Nn0.bHTmtQVIb2HcHgvBYnCkEjvwT7h14-Gf3fM5--bAL7FaCXthUiFEfldzxO2kzOrWjhEzWNHgHhyseZqNU4RYnw"
+    },
+    "throwaway-kid": {
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLXRocm93YXdheSIsInR5cCI6InZhcmtldGEtYWN0aW5nLXByaW5jaXBhbCtqd3QifQ.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzQwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MjAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktYWZ0ZXItcm90YXRpb24iLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiaW50ZXJhY3RpdmUiLCJzY29wZV9pZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInNjb3BlcyI6WyJyZWNvcmRzLnJlYWQiLCJyZWNvcmRzLndyaXRlIl0sInN1YiI6InVzZXItNyIsInRlbmFudCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInRvb2xfZGVjbGFyZWQiOiJjcmVhdGVfcmVjb3JkIiwidG9vbF9xdWFsaWZpZWQiOiJyMS1yZWNvcmRzLWNyZWF0ZV9yZWNvcmQiLCJ2ZXIiOjZ9.TtiVO4lr7Q-NYl01UDVqxkKQzADkhBgZFvJFTV08wxr0QJmMaLfEnkFoPRFlmIei_lV6prUqihJqv4-Z2W8Ycw"
     }
   },
   "responses": {
@@ -268,6 +284,32 @@
           }
         ]
       }
+    },
+    "jwks-rotated": {
+      "status": 200,
+      "cache_control": "public, max-age=300",
+      "body": {
+        "keys": [
+          {
+            "use": "sig",
+            "kty": "EC",
+            "kid": "v3-next",
+            "crv": "P-256",
+            "alg": "ES256",
+            "x": "tszR_Tmu-ul7mX9PCa6vybiu6QOZsaOXOG1N3ycHVL0",
+            "y": "030tElAaKwBhs-umPjOQofa0yFIx7i8cVVXRefXB4dY"
+          },
+          {
+            "use": "sig",
+            "kty": "EC",
+            "kid": "v3-current",
+            "crv": "P-256",
+            "alg": "ES256",
+            "x": "KczrvPvJHomI3wyaOUKboMUSnkJzLEEqShaCUkFlz9I",
+            "y": "PrajkBB-jjuS10rKvkltJs0ZnMm77aPkb8BNFubFgAg"
+          }
+        ]
+      }
     }
   },
   "cases": [
@@ -298,6 +340,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -316,7 +370,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -351,6 +405,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -369,7 +435,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -401,6 +467,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -419,7 +497,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -451,6 +529,18 @@
         {
           "now": 1767225610,
           "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "within the 15 s floor a stale cache fetches nothing",
+          "input": "good"
+        },
+        {
+          "now": 1767225625,
+          "expect": {
             "accept": true,
             "identity": {
               "act_kind": "person",
@@ -469,7 +559,7 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
             }
           },
-          "label": "accepts the same assertion after metadata recovers",
+          "label": "accepts the same assertion once metadata recovers past the floor",
           "input": "good"
         }
       ]
@@ -767,9 +857,23 @@
           }
         },
         {
-          "label": "refuses a distinct eligible old-key request and retries discovery",
+          "label": "refuses a distinct eligible old-key request within the floor, fetching nothing",
           "input": "exp-within-skew",
           "now": 1767225611,
+          "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 2,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/replacement-jwks.json": 1
+            }
+          }
+        },
+        {
+          "label": "retries discovery once past the floor, and fails again",
+          "input": "exp-within-skew",
+          "now": 1767225626,
           "expect": {
             "accept": false,
             "code": "jwks_unavailable",
@@ -783,7 +887,7 @@
         {
           "label": "uses keys from the recovered metadata and key set",
           "input": "previous-key",
-          "now": 1767225612,
+          "now": 1767225641,
           "expect": {
             "accept": true,
             "identity": {
@@ -860,9 +964,22 @@
           }
         },
         {
-          "label": "refuses a distinct eligible old-key request and retries discovery",
+          "label": "refuses a distinct eligible old-key request within the floor, fetching nothing",
           "input": "exp-within-skew",
           "now": 1767225611,
+          "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 2,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 2
+            }
+          }
+        },
+        {
+          "label": "retries discovery once past the floor, and fails again",
+          "input": "exp-within-skew",
+          "now": 1767225626,
           "expect": {
             "accept": false,
             "code": "jwks_unavailable",
@@ -875,7 +992,7 @@
         {
           "label": "uses keys from the recovered metadata and key set",
           "input": "previous-key",
-          "now": 1767225612,
+          "now": 1767225641,
           "expect": {
             "accept": true,
             "identity": {
@@ -895,6 +1012,234 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 4
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "an-unknown-kid-delays-a-rotated-in-key-at-most-the-floor",
+      "fetches": {
+        "https://issuer.example/.well-known/varketa-acting-principal": [
+          "metadata"
+        ],
+        "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+          "jwks",
+          "jwks",
+          "jwks-rotated"
+        ]
+      },
+      "steps": [
+        {
+          "now": 1767225620,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
+            }
+          },
+          "label": "a cached key is accepted",
+          "input": "good"
+        },
+        {
+          "now": 1767225621,
+          "expect": {
+            "accept": false,
+            "code": "kid",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 2
+            }
+          },
+          "label": "an unsigned unknown kid spends the refetch; the set is unchanged",
+          "input": "throwaway-kid"
+        },
+        {
+          "now": 1767225622,
+          "expect": {
+            "accept": false,
+            "code": "kid",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 2
+            }
+          },
+          "label": "a key published after that refetch is refused within the floor",
+          "input": "rotated-in"
+        },
+        {
+          "now": 1767225636,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 3
+            }
+          },
+          "label": "past the 15 s floor the rotated-in key is fetched and accepted",
+          "input": "rotated-in"
+        },
+        {
+          "now": 1767225637,
+          "expect": {
+            "accept": false,
+            "code": "kid",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 3
+            }
+          },
+          "label": "an unknown kid within the new floor fetches nothing",
+          "input": "throwaway-kid"
+        }
+      ]
+    },
+    {
+      "name": "a-clock-stepped-back-is-outside-the-unknown-kid-floor",
+      "fetches": {
+        "https://issuer.example/.well-known/varketa-acting-principal": [
+          "metadata"
+        ],
+        "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+          "jwks",
+          "jwks",
+          "jwks-rotated"
+        ]
+      },
+      "steps": [
+        {
+          "now": 1767225620,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
+            }
+          },
+          "label": "a cached key is accepted",
+          "input": "good"
+        },
+        {
+          "now": 1767225621,
+          "expect": {
+            "accept": false,
+            "code": "kid",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 2
+            }
+          },
+          "label": "an unsigned unknown kid spends the refetch; the set is unchanged",
+          "input": "throwaway-kid"
+        },
+        {
+          "now": 1767225590,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 3
+            }
+          },
+          "label": "a clock stepped back before the refetch is outside its floor: the rotated-in key is fetched and accepted",
+          "input": "rotated-in"
+        }
+      ]
+    },
+    {
+      "name": "a-clock-stepped-back-is-outside-the-failed-discovery-floor",
+      "fetches": {
+        "https://issuer.example/.well-known/varketa-acting-principal": [
+          "metadata-wrong-issuer",
+          "metadata"
+        ],
+        "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+          "jwks"
+        ]
+      },
+      "steps": [
+        {
+          "now": 1767225610,
+          "expect": {
+            "accept": false,
+            "code": "jwks_unavailable",
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 1
+            }
+          },
+          "label": "refuses before fetching keys",
+          "input": "good"
+        },
+        {
+          "now": 1767225600,
+          "expect": {
+            "accept": true,
+            "identity": {
+              "act_kind": "person",
+              "adopter": "11111111-1111-4111-8111-111111111111",
+              "persona": "support",
+              "presence": "interactive",
+              "scopes": [
+                "records.read",
+                "records.write"
+              ],
+              "sub": "user-7",
+              "tenant": "22222222-2222-4222-8222-222222222222"
+            },
+            "fetch_counts": {
+              "https://issuer.example/.well-known/varketa-acting-principal": 2,
+              "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 1
+            }
+          },
+          "label": "a clock stepped back before the failed discovery is outside its floor: discovery runs again and accepts",
+          "input": "good"
         }
       ]
     }

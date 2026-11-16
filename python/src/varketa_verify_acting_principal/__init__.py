@@ -43,7 +43,13 @@ _SKEW = 60
 _MAX_SAFE_INTEGER = 2**53 - 1
 _MAX_LIFETIME = 120
 _MAX_CACHE = 300
-_REFETCH_INTERVAL = 60
+_REFETCH_INTERVAL = 15
+
+
+def _within_floor(now: int, start: int) -> bool:
+    """Whether now is within the refetch floor of a discovery that started at start. A clock that has stepped back
+    before start is not within it, so a wall-clock correction never holds the floor shut (SPEC §2.3, §2.4)."""
+    return start <= now < start + _REFETCH_INTERVAL
 _FETCH_TIMEOUT = 10
 _MAX_DOCUMENT_BYTES = 64 * 1024
 _MAX_ASSERTION_DEPTH = 32
@@ -355,6 +361,9 @@ class Verifier:
         self._keys: Optional[dict[str, dict[str, Any]]] = None
         self._fetched_at = self._max_age = 0
         self._last_refetch: Optional[int] = None
+        # The start of the last discovery that failed, None after one succeeds: a stale cache starts no new discovery for
+        # the refetch floor after it (SPEC §2.3), so an issuer outage costs one fetch per floor, not one per request.
+        self._failed_at: Optional[int] = None
         # The discovery in flight, if any: fetched outside the lock, so a slow issuer never holds a verify whose key
         # is cached, and shared, so concurrent verifies that need it wait on one fetch.
         self._flight: Optional[_Flight] = None
@@ -407,12 +416,12 @@ class Verifier:
 
     def _flight_for(self, now: int, refetch: bool) -> tuple[Optional[_Flight], bool]:
         """Under the lock: the discovery to wait on and whether this caller leads it. A flight already under way is
-        joined whatever its cause; a new one starts when the cache is stale, or for an unknown kid at most once a
-        minute (SPEC §2.4)."""
+        joined whatever its cause; a new one starts when the cache is stale, or for an unknown kid when no unknown-kid
+        refetch started in the last 15 s (SPEC §2.4)."""
         if self._flight is not None:
             return self._flight, False
         if refetch:
-            if self._last_refetch is not None and now - self._last_refetch < _REFETCH_INTERVAL:
+            if self._last_refetch is not None and _within_floor(now, self._last_refetch):
                 return None, False
             self._last_refetch = now
         self._flight = _Flight()
@@ -428,6 +437,7 @@ class Verifier:
         finally:
             with self._lock:
                 self._flight = None
+                self._failed_at = None if flight.ok else now
             flight.done.set()
 
     def _read_clock(self) -> int:
@@ -440,7 +450,12 @@ class Verifier:
         # A stale cache: one discovery serves every verify that needs it, and a failed one refuses them all.
         with self._lock:
             now = self._read_clock()
-            flight, lead = self._flight_for(now, refetch=False) if self._stale(now) else (None, False)
+            stale = self._stale(now)
+            backing_off = stale and self._flight is None and self._failed_at is not None \
+                and _within_floor(now, self._failed_at)
+            flight, lead = self._flight_for(now, refetch=False) if stale and not backing_off else (None, False)
+        if backing_off:
+            raise VerificationError("jwks_unavailable")
         if flight is not None:
             self._fly(flight, lead, now)
             if not flight.ok:

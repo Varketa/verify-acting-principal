@@ -15,7 +15,10 @@ const ALGORITHMS: Record<string, { hash: string | null; kty: string; crv: string
 const SKEW = 60;
 const MAX_LIFETIME = 120;
 const MAX_CACHE = 300;
-const REFETCH_INTERVAL = 60;
+const REFETCH_INTERVAL = 15;
+// Whether now is within the refetch floor of a discovery that started at `start`. A clock that has stepped back before
+// start is not within it, so a wall-clock correction never holds the floor shut (SPEC §2.3, §2.4).
+const withinFloor = (now: number, start: number) => now >= start && now - start < REFETCH_INTERVAL;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
 const MAX_ASSERTION_DEPTH = 32;
@@ -216,6 +219,9 @@ export class Verifier {
   #fetchedAt = 0;
   #maxAge = 0;
   #lastRefetch: number | null = null;
+  // The start of the last discovery that failed, null after one succeeds: a stale cache starts no new discovery for the
+  // refetch floor after it (SPEC §2.3), so an issuer outage costs one fetch per floor, not one per request.
+  #failedAt: number | null = null;
   #loading: Promise<boolean> | null = null;
 
   constructor(options: Options) {
@@ -239,7 +245,7 @@ export class Verifier {
   async #load(now: number): Promise<boolean> {
     // Concurrent requests share one discovery transaction, so an older key fetch cannot overwrite a newer one.
     if (this.#loading) return this.#loading;
-    this.#loading = this.#reload(now);
+    this.#loading = this.#reload(now).then((ok) => { this.#failedAt = ok ? null : now; return ok; });
     try { return await this.#loading; } finally { this.#loading = null; }
   }
 
@@ -299,6 +305,9 @@ export class Verifier {
     const alg = typeof header.alg === "string" ? ALGORITHMS[header.alg] : undefined;
     if (!alg || !Object.hasOwn(ALGORITHMS, header.alg as string)) throw new VerificationError("alg");
     if (this.#keys === null || now - this.#fetchedAt >= this.#maxAge || now - this.#mdFetchedAt >= this.#mdMaxAge) {
+      if (!this.#loading && this.#failedAt !== null && withinFloor(now, this.#failedAt)) {
+        throw new VerificationError("jwks_unavailable");
+      }
       if (!(await this.#load(now))) throw new VerificationError("jwks_unavailable");
     }
     const kid = typeof header.kid === "string" ? header.kid : "";
@@ -309,9 +318,14 @@ export class Verifier {
       await this.#loading.catch(() => false);
       jwk = this.#keys?.get(kid);
     }
-    if (!jwk && (this.#lastRefetch === null || now - this.#lastRefetch >= REFETCH_INTERVAL)) {
-      this.#lastRefetch = now;
-      if (await this.#load(now)) jwk = this.#keys?.get(kid);
+    // An unknown kid reads the clock again, as the Python verifier does under its lock: a load awaited above may have
+    // taken up to its fetch bound, and the floor and the fetch's own time are measured from now (SPEC §2.4).
+    if (!jwk) {
+      const refetchAt = this.#readClock();
+      if (this.#lastRefetch === null || !withinFloor(refetchAt, this.#lastRefetch)) {
+        this.#lastRefetch = refetchAt;
+        if (await this.#load(refetchAt)) jwk = this.#keys?.get(kid);
+      }
     }
     // A network wait may itself consume the documents' positive cache lifetime.
     const keyAt = this.#readClock();

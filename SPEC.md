@@ -33,9 +33,17 @@ It also REQUIRES a replay store (§5). There is no silent default.
    Never fix the key path; it can move.
 2. Fetch the JWK Set from `jwks_uri`. It holds the current key and, during a rotation, a second key. Both verify.
 3. Cache each document for at most its `Cache-Control` max-age, capped at 300 s, and never past it. A refetch that
-   fails after expiry refuses EVERY assertion (`jwks_unavailable`): no stale-if-error.
-4. On a `kid` the cached set lacks, refetch the set once, at most once a minute, and refuse a `kid` still absent
-   (`kid`).
+   fails after expiry refuses EVERY assertion (`jwks_unavailable`): no stale-if-error. After a discovery fails, start
+   no new one for 15 s from that discovery's start, though one already in flight is joined. A verification that
+   needs one in that time is refused (`jwks_unavailable`) without a fetch, so an issuer outage costs one fetch per
+   15 s per verifier, not one per request. A discovery that succeeds ends the floor.
+4. On a `kid` the cached set lacks, refetch the set unless a refetch for an unknown `kid` started less than 15 s
+   earlier (for any `kid`, whether or not it succeeded), and refuse a `kid` the set still lacks (`kid`). A refetch
+   already in flight is joined, not repeated. The `kid` is read before the signature is checked, so any caller can
+   start this refetch: the 15 s floor bounds these refetches to one per 15 s per verifier, and, because each
+   refetch reads the issuer's current set, bounds to 15 s the time a newly published key can be refused. A clock
+   that reads earlier than a floor's start is outside it, here and in §2.3, so a clock stepped back never holds a
+   floor shut.
 5. Do not follow a redirect, and bound each fetch as a whole, not each read (the libraries use 10 s and 64 KiB): a
    stalled, dripping or oversized answer is a failed fetch. Fetch outside any lock a verification of a cached key
    would wait on, so one slow issuer answer delays only the verifications that need it.
