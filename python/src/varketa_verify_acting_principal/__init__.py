@@ -43,7 +43,7 @@ _SKEW = 60
 _MAX_SAFE_INTEGER = 2**53 - 1
 _MAX_LIFETIME = 120
 _MAX_CACHE = 300
-_REFETCH_INTERVAL = 60
+_REFETCH_INTERVAL = 15
 _FETCH_TIMEOUT = 10
 _MAX_DOCUMENT_BYTES = 64 * 1024
 _MAX_ASSERTION_DEPTH = 32
@@ -407,8 +407,8 @@ class Verifier:
 
     def _flight_for(self, now: int, refetch: bool) -> tuple[Optional[_Flight], bool]:
         """Under the lock: the discovery to wait on and whether this caller leads it. A flight already under way is
-        joined whatever its cause; a new one starts when the cache is stale, or for an unknown kid at most once a
-        minute (SPEC §2.4)."""
+        joined whatever its cause; a new one starts when the cache is stale, or for an unknown kid when no unknown-kid
+        refetch started in the last 15 s (SPEC §2.4)."""
         if self._flight is not None:
             return self._flight, False
         if refetch:
