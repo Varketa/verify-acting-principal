@@ -389,19 +389,29 @@ export class Verifier {
       return { format: "iss_sub", iss: v.iss, sub: v.sub };
     };
     const subId = Object.hasOwn(c, "sub_id") ? issSub(c.sub_id) : undefined;
-    // A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty string
-    // and sub_id an exact iss_sub, beside a run_id, whatever the act_kind.
+    const actKind = str("act_kind"), runID = str("run_id");
+    if (Object.hasOwn(c, "act_kind") && actKind === undefined) throw new VerificationError("malformed");
+    if (ver === 6) {
+      if (actKind === "watch_run" && (!NON_WHITESPACE.test(runID ?? "") || str("presence") !== "delegated")) {
+        throw new VerificationError("malformed");
+      }
+      if (Object.hasOwn(c, "run_id") && (Object.hasOwn(c, "sub") || Object.hasOwn(c, "sub_id"))) {
+        throw new VerificationError("malformed");
+      }
+    }
+    // A present run_owner names an accountable person on an automation, evaluation or watch run.
     let runOwner: RunOwner | undefined;
     if (Object.hasOwn(c, "run_owner")) {
       const v = c.run_owner as Record<string, unknown> | null;
-      if (typeof v !== "object" || v === null || Array.isArray(v) || !str("run_id") || typeof v.sub !== "string"
-        || v.sub === "" || Object.keys(v).length !== (Object.hasOwn(v, "sub_id") ? 2 : 1)) {
+      if (typeof v !== "object" || v === null || Array.isArray(v) || !runID
+        || (actKind !== "automation_run" && actKind !== "eval_run" && actKind !== "watch_run")
+        || typeof v.sub !== "string" || !NON_WHITESPACE.test(v.sub)
+        || Object.keys(v).length !== (Object.hasOwn(v, "sub_id") ? 2 : 1)) {
         throw new VerificationError("malformed");
       }
       runOwner = { sub: v.sub };
       if (Object.hasOwn(v, "sub_id")) runOwner.sub_id = issSub(v.sub_id);
     }
-    const actKind = str("act_kind");
     // A kind or claim newer than the signed claim set is malformed: discovery and on_behalf need 5, watch_run and run_owner 6.
     if ((ver < 5 && (actKind === "discovery" || actKind === "on_behalf"))
       || (ver < 6 && (actKind === "watch_run" || runOwner !== undefined))) throw new VerificationError("malformed");

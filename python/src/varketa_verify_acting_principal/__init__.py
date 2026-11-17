@@ -564,19 +564,25 @@ class Verifier:
             return {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
 
         sub_id = iss_sub(c["sub_id"]) if "sub_id" in c else None
-        # A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty
-        # string and sub_id an exact iss_sub, beside a run_id, whatever the act_kind.
+        act_kind, run_id = s("act_kind"), s("run_id")
+        if "act_kind" in c and act_kind is None:
+            raise VerificationError("malformed")
+        if ver == 6:
+            if act_kind == "watch_run" and (not _NON_WHITESPACE.search(run_id or "") or s("presence") != "delegated"):
+                raise VerificationError("malformed")
+            if "run_id" in c and ("sub" in c or "sub_id" in c):
+                raise VerificationError("malformed")
+        # A present run_owner names an accountable person on an automation, evaluation or watch run.
         run_owner: Optional[dict[str, Any]] = None
         if "run_owner" in c:
             v = c["run_owner"]
-            if (not isinstance(v, dict) or not s("run_id")
-                    or not isinstance(v.get("sub"), str) or not v["sub"]
+            if (not isinstance(v, dict) or not run_id or act_kind not in ("automation_run", "eval_run", "watch_run")
+                    or not isinstance(v.get("sub"), str) or not _NON_WHITESPACE.search(v["sub"])
                     or len(v) != (2 if "sub_id" in v else 1)):
                 raise VerificationError("malformed")
             run_owner = {"sub": v["sub"]}
             if "sub_id" in v:
                 run_owner["sub_id"] = iss_sub(v["sub_id"])
-        act_kind = s("act_kind")
         # A kind or claim newer than the signed claim set is malformed: discovery and on_behalf need 5, watch_run and
         # run_owner 6.
         if ((ver < 5 and act_kind in ("discovery", "on_behalf"))

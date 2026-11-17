@@ -77,7 +77,7 @@ be an integer excluding booleans. An invalid sample is an operational error. The
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `discovery` and `on_behalf` require claim set 5 or later, and `watch_run` and a present `run_owner` require claim set 6 or later; `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); a present `act_kind` is a string; `discovery` and `on_behalf` require claim set 5 or later, and `watch_run` and a present `run_owner` require claim set 6 or later; in claim set 6, `watch_run` requires a nonblank string `run_id` and delegated presence, and an assertion containing `run_id` omits top-level `sub` and `sub_id`; `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` on an automation, evaluation or watch run (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 The protected header and claims each have a maximum JSON depth of 32, counting the root object as level 1.
@@ -119,7 +119,8 @@ An accepted assertion exposes:
   For an accepted claim-set version earlier than 5, `act_kind: "discovery"` or `act_kind: "on_behalf"` is
   refused as `malformed` at check 17 before replay, and so are `act_kind: "watch_run"` and a present `run_owner`
   at a version earlier than 6. An absent `act_kind` in claim set 3 or 4 remains allowed when the other checks pass.
-  Check 8 still refuses any unsupported version before this check.
+  A present `act_kind` that is not a string is refused at check 17 in every accepted claim set. Unknown strings pass the
+  kind-type check and remain subject to the other claim checks. Check 8 still refuses any unsupported version first.
 - `act_kind` `discovery` (claim set 5): Varketa reading your API's own surface, such as an MCP `tools/list` or your
   OpenAPI document, to learn what it offers. It names no tool and no run. Its `sub` is `varketa-discovery` when no
   grant made the request; otherwise `grant` names the grant. Act on no customer's data for it.
@@ -131,14 +132,16 @@ An accepted assertion exposes:
   an actor, nor an actor on a kind that has none.
 - `act_kind` `watch_run` (claim set 6): a read inside a run of a customer's own standing watch. `run_id` names the
   check's run, `presence` is `delegated`, and `grant` names the grant; it carries no top-level `sub`. Varketa sends
-  only reads for it.
+  only reads for it. Check 17 refuses a claim-set-6 watch without a nonblank string `run_id` or delegated presence.
+  Nonblank here and for the owner subject below means a string with at least one character outside the Unicode
+  17.0 `White_Space` property, as for `approved_by.sub`.
 - `run_owner` (claim set 6): the person accountable for the run, who defined the automation, requested the evaluation
   or created the watch. It is not the actor: `act_kind` says a run acted, and `presence` is `delegated`. Do not
   authorize it as the person present. It is `{"sub": "<subject>"}` or `{"sub": "<subject>", "sub_id": <iss_sub>}`.
   Its `sub` is the subject this adopter receives as `sub` on that person's own acts. Its `sub_id` is your own subject
   for the run-as grant, an exact `iss_sub` as below, present only where Varketa holds one. A present `run_owner` has
-  exactly those members, `sub` a non-empty string, and only beside a `run_id`, or the assertion is refused `malformed`
-  (check 17), whatever the `act_kind`; below claim set 6 any `run_owner` is refused the same way.
+  exactly those members, with a nonblank string `sub`. It is allowed only beside a nonempty string `run_id` on an
+  `automation_run`, `eval_run` or `watch_run`. Check 17 refuses it as `malformed` otherwise, including below claim set 6.
 - `sub_id` (claim set 4): the acting person as YOUR identity provider names them, an
   [RFC 9493](https://www.rfc-editor.org/rfc/rfc9493) subject identifier `{"format": "iss_sub", "iss": "<your IdP's
   issuer>", "sub": "<its subject>"}`. It is present when Varketa holds the acting grant's subject at your provider
@@ -148,7 +151,8 @@ An accepted assertion exposes:
   `iss_sub` and `iss` and `sub` non-empty strings, or the assertion is refused `malformed` (check 17): a verifier
   never exposes half a subject. It is judged the same way whatever the `ver`. On a run (`run_id` present), claim sets
   4 and 5 carry here the subject of the grant the run acts under, its owner, who is accountable for it and is not
-  present; read `act_kind`. From claim set 6 a run carries it only inside `run_owner`.
+  present; read `act_kind`. From claim set 6 a run carries it only inside `run_owner`. In claim set 6 an assertion
+  containing `run_id` is refused at check 17 if top-level `sub` or `sub_id` is present, even when the value is null.
 - `probe: true` on Varketa's verification probe only. A probe is verified like any other assertion, carries a fixed
   synthetic subject rather than a real person's, and reaches only a read. Act on no real data for it.
 

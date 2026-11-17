@@ -84,6 +84,16 @@
     "run-owner-not-an-object",
     "run-owner-extra-member",
     "run-owner-empty-sub",
-    "run-owner-bad-sub-id"
+    "run-owner-bad-sub-id",
+    "r13-watch-missing-run",
+    "r13-watch-blank-run",
+    "r13-watch-top-level-sub",
+    "r13-watch-interactive",
+    "r13-eval-top-level-sub-id",
+    "r13-eval-null-sub",
+    "r13-owner-blank-sub",
+    "r13-owner-on-peer-run",
+    "r13-future-kind-owner",
+    "r13-earlier-non-string-kind"
   ]
 }
