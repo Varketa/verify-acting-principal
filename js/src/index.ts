@@ -104,6 +104,8 @@ export interface Identity {
   sub?: string; grant?: string; tenant: string; adopter: string; persona?: string; scopes?: string[];
   act_kind?: string; presence?: string; run_id?: string; approved_by?: unknown; probe?: true;
   sub_id?: SubjectId; act?: Actor; run_owner?: RunOwner;
+  /** The Varketa scope inside `tenant` the call was made at, as signed (claim set 6; SPEC §4). Opaque. */
+  scope_id?: string;
 }
 
 export interface Request { method: string; url: string; body: Uint8Array | string; assertion: string | null | undefined }
@@ -419,6 +421,8 @@ export class Verifier {
     }
     const hasApproval = Object.hasOwn(c, "approved_by");
     if (hasApproval && !isApprovalChain(c.approved_by)) throw new VerificationError("malformed");
+    // From claim set 6 a PRESENT scope_id is a string (SPEC §4): exposed when non-empty, never in another shape.
+    if (ver >= 6 && Object.hasOwn(c, "scope_id") && typeof c.scope_id !== "string") throw new VerificationError("malformed");
     // LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
     // The exclusive expiry must lie past the inclusive cutoff, including when floating-point addition rounds.
     const cutoff = exp + SKEW;
@@ -441,6 +445,7 @@ export class Verifier {
     if (subId) id.sub_id = subId;
     if (actor) id.act = actor;
     if (runOwner) id.run_owner = runOwner;
+    if (ver >= 6 && typeof c.scope_id === "string" && c.scope_id !== "") id.scope_id = c.scope_id;
     return id;
   }
 }
