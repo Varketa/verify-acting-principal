@@ -61,6 +61,18 @@
     "jwks-stale",
     "rotation",
     "replay",
-    "refused-is-not-recorded"
+    "refused-is-not-recorded",
+    "act-kind-absent",
+    "act-kind-empty",
+    "r13-earlier-non-string-kind",
+    "person-with-run",
+    "person-numeric-run",
+    "run-id-blank",
+    "peer_run-without-run",
+    "automation_run-without-run",
+    "eval_run-without-run",
+    "run-id-file-separator",
+    "unknown-kind-with-run",
+    "unknown-kind-without-run"
   ]
 }

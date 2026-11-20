@@ -37,6 +37,14 @@
                 "crv": "Ed25519",
                 "kid": "actor-version-cs6",
                 "x": "eN7ZQPyuSaH8bs4DzNlpNVLZla0n6EpYvsztuboiW4g"
+              },
+              {
+                "use": "sig",
+                "kty": "OKP",
+                "kid": "actor-version-person",
+                "crv": "Ed25519",
+                "alg": "EdDSA",
+                "x": "cDVdjZ0bg59fW-bRd5mdmEXPWE2JgUTD-C6GyUilktY"
               }
             ]
           }
@@ -120,14 +128,29 @@
         }
       },
       {
-        "label": "absent kind in v3 on the same identifier",
+        "label": "absent kind in v3 is malformed",
         "now": 1767225610,
         "request": {
           "method": "POST",
           "url": "https://api.adopter.example/v1/records?limit=10",
           "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
         },
-        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tc2RrLXRlc3QiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiV2sxanVtZUZLY0NOcFlBeEQxX183Q3FaWVZwUk1EalFldHFjTXZFRXdPYyIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiUE9TVCIsImh0dSI6Imh0dHBzOi8vYXBpLmFkb3B0ZXIuZXhhbXBsZS92MS9yZWNvcmRzP2xpbWl0PTEwIiwiaWF0IjoxNzY3MjI1NjAwLCJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwianRpIjoib25lIiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImludGVyYWN0aXZlIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJzdWIiOiJ1c2VyLTciLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjozfQ.W2zHHFKmh0OsuU5Bgy1V4UI-C-YxmVesY4MP7k6J3vqtHcmNpH0X86USGfAcAO5sMy9E7Ng7cSBBCkZ96cYlAQ",
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tcGVyc29uIiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiV2sxanVtZUZLY0NOcFlBeEQxX183Q3FaWVZwUk1EalFldHFjTXZFRXdPYyIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiUE9TVCIsImh0dSI6Imh0dHBzOi8vYXBpLmFkb3B0ZXIuZXhhbXBsZS92MS9yZWNvcmRzP2xpbWl0PTEwIiwiaWF0IjoxNzY3MjI1NjAwLCJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwianRpIjoib25lLWFic2VudC1raW5kIiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImludGVyYWN0aXZlIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJzdWIiOiJ1c2VyLTciLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjozfQ.IfSgPupgXATK8IPji8CRxF1pWABkFjkUGfDArfrqt24IzS69DR-upIw0zAnZakyUrRpRmQTl48mCBnzyU3sQBQ",
+        "expect": {
+          "accept": false,
+          "jwks_fetches": 1,
+          "code": "malformed"
+        }
+      },
+      {
+        "label": "person's act in v3 on the same identifier",
+        "now": 1767225610,
+        "request": {
+          "method": "POST",
+          "url": "https://api.adopter.example/v1/records?limit=10",
+          "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+        },
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tcGVyc29uIiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJvbmUiLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiaW50ZXJhY3RpdmUiLCJzY29wZV9pZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInNjb3BlcyI6WyJyZWNvcmRzLnJlYWQiLCJyZWNvcmRzLndyaXRlIl0sInN1YiI6InVzZXItNyIsInRlbmFudCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInRvb2xfZGVjbGFyZWQiOiJjcmVhdGVfcmVjb3JkIiwidG9vbF9xdWFsaWZpZWQiOiJyMS1yZWNvcmRzLWNyZWF0ZV9yZWNvcmQiLCJ2ZXIiOjN9.BJ8KBxHLlKHY8akxMGyNde1VLk5QwGX7teJJ27O70z6raD_rQHqYmW7gsiRYd_vFKGpa0S_Qu90w8H6tmPiwCA",
         "expect": {
           "accept": true,
           "jwks_fetches": 1,
@@ -140,7 +163,8 @@
               "records.write"
             ],
             "sub": "user-7",
-            "tenant": "22222222-2222-4222-8222-222222222222"
+            "tenant": "22222222-2222-4222-8222-222222222222",
+            "act_kind": "person"
           }
         }
       },
@@ -167,7 +191,7 @@
           "url": "https://api.adopter.example/v1/records?limit=10",
           "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
         },
-        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tc2RrLXRlc3QiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiV2sxanVtZUZLY0NOcFlBeEQxX183Q3FaWVZwUk1EalFldHFjTXZFRXdPYyIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiUE9TVCIsImh0dSI6Imh0dHBzOi8vYXBpLmFkb3B0ZXIuZXhhbXBsZS92MS9yZWNvcmRzP2xpbWl0PTEwIiwiaWF0IjoxNzY3MjI1NjAwLCJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwianRpIjoib25lIiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImludGVyYWN0aXZlIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJzdWIiOiJ1c2VyLTciLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjozfQ.W2zHHFKmh0OsuU5Bgy1V4UI-C-YxmVesY4MP7k6J3vqtHcmNpH0X86USGfAcAO5sMy9E7Ng7cSBBCkZ96cYlAQ",
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tcGVyc29uIiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJvbmUiLCJwZXJzb25hIjoic3VwcG9ydCIsInByZXNlbmNlIjoiaW50ZXJhY3RpdmUiLCJzY29wZV9pZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInNjb3BlcyI6WyJyZWNvcmRzLnJlYWQiLCJyZWNvcmRzLndyaXRlIl0sInN1YiI6InVzZXItNyIsInRlbmFudCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInRvb2xfZGVjbGFyZWQiOiJjcmVhdGVfcmVjb3JkIiwidG9vbF9xdWFsaWZpZWQiOiJyMS1yZWNvcmRzLWNyZWF0ZV9yZWNvcmQiLCJ2ZXIiOjN9.BJ8KBxHLlKHY8akxMGyNde1VLk5QwGX7teJJ27O70z6raD_rQHqYmW7gsiRYd_vFKGpa0S_Qu90w8H6tmPiwCA",
         "expect": {
           "accept": false,
           "jwks_fetches": 1,
@@ -320,6 +344,14 @@
                 "crv": "Ed25519",
                 "kid": "actor-version-sdk-test",
                 "x": "43K13MTbSS3F4k3_XZPTKODD4kkX2A_tw4cF-HCZ7ko"
+              },
+              {
+                "use": "sig",
+                "kty": "OKP",
+                "kid": "actor-version-person",
+                "crv": "Ed25519",
+                "alg": "EdDSA",
+                "x": "cDVdjZ0bg59fW-bRd5mdmEXPWE2JgUTD-C6GyUilktY"
               }
             ]
           }
@@ -343,14 +375,29 @@
         }
       },
       {
-        "label": "absent kind in v4 on the same identifier",
+        "label": "absent kind in v4 is malformed",
         "now": 1767225610,
         "request": {
           "method": "POST",
           "url": "https://api.adopter.example/v1/records?limit=10",
           "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
         },
-        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tc2RrLXRlc3QiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiV2sxanVtZUZLY0NOcFlBeEQxX183Q3FaWVZwUk1EalFldHFjTXZFRXdPYyIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiUE9TVCIsImh0dSI6Imh0dHBzOi8vYXBpLmFkb3B0ZXIuZXhhbXBsZS92MS9yZWNvcmRzP2xpbWl0PTEwIiwiaWF0IjoxNzY3MjI1NjAwLCJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwianRpIjoiZm91ciIsInBlcnNvbmEiOiJzdXBwb3J0IiwicHJlc2VuY2UiOiJpbnRlcmFjdGl2ZSIsInNjb3BlX2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGVzIjpbInJlY29yZHMucmVhZCIsInJlY29yZHMud3JpdGUiXSwic3ViIjoidXNlci03IiwidGVuYW50IjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwidG9vbF9kZWNsYXJlZCI6ImNyZWF0ZV9yZWNvcmQiLCJ0b29sX3F1YWxpZmllZCI6InIxLXJlY29yZHMtY3JlYXRlX3JlY29yZCIsInZlciI6NH0.3lh1t7Z5j48ghe-ba17npM8rDspVd6fUG5ue3R6524ilFgMiKBLa7-l6Pv40ubpySfqKSier6Wwe2atIVAjSCA",
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tcGVyc29uIiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiV2sxanVtZUZLY0NOcFlBeEQxX183Q3FaWVZwUk1EalFldHFjTXZFRXdPYyIsImV4cCI6MTc2NzIyNTcyMCwiaHRtIjoiUE9TVCIsImh0dSI6Imh0dHBzOi8vYXBpLmFkb3B0ZXIuZXhhbXBsZS92MS9yZWNvcmRzP2xpbWl0PTEwIiwiaWF0IjoxNzY3MjI1NjAwLCJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlIiwianRpIjoiZm91ci1hYnNlbnQta2luZCIsInBlcnNvbmEiOiJzdXBwb3J0IiwicHJlc2VuY2UiOiJpbnRlcmFjdGl2ZSIsInNjb3BlX2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGVzIjpbInJlY29yZHMucmVhZCIsInJlY29yZHMud3JpdGUiXSwic3ViIjoidXNlci03IiwidGVuYW50IjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwidG9vbF9kZWNsYXJlZCI6ImNyZWF0ZV9yZWNvcmQiLCJ0b29sX3F1YWxpZmllZCI6InIxLXJlY29yZHMtY3JlYXRlX3JlY29yZCIsInZlciI6NH0.EPuGdJTWrw-UaYWHzNRDL7emKdz9a0Ovx2nbAq5cEheKV1U-B4pKjjBPx9BoRGmAlFdJEZ8f8D-W35SWktE9BQ",
+        "expect": {
+          "accept": false,
+          "jwks_fetches": 1,
+          "code": "malformed"
+        }
+      },
+      {
+        "label": "person's act in v4 on the same identifier",
+        "now": 1767225610,
+        "request": {
+          "method": "POST",
+          "url": "https://api.adopter.example/v1/records?limit=10",
+          "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+        },
+        "assertion": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFjdG9yLXZlcnNpb24tcGVyc29uIiwidHlwIjoidmFya2V0YS1hY3RpbmctcHJpbmNpcGFsK2p3dCJ9.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhdWQiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUiLCJiZHkiOiJXazFqdW1lRktjQ05wWUF4RDFfXzdDcVpZVnBSTURqUWV0cWNNdkVFd09jIiwiZXhwIjoxNzY3MjI1NzIwLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJmb3VyIiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImludGVyYWN0aXZlIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJzdWIiOiJ1c2VyLTciLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjo0fQ.z2FHeTuGfM23FVDh-o1_OFGrUHZ1JRTGCwGv2NS3_m90423H1MqeBcJ7BgNxnjKkm9wwe1re9-VsEIrox3bIAg",
         "expect": {
           "accept": true,
           "jwks_fetches": 1,
@@ -363,7 +410,8 @@
               "records.write"
             ],
             "sub": "user-7",
-            "tenant": "22222222-2222-4222-8222-222222222222"
+            "tenant": "22222222-2222-4222-8222-222222222222",
+            "act_kind": "person"
           }
         }
       }

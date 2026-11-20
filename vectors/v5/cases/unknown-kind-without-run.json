@@ -1,0 +1,77 @@
+{
+  "name": "unknown-kind-without-run",
+  "description": "act_kind future_run, which this spec does not name, with no run_id: accepted, the kind exposed as signed.",
+  "fetches": {
+    "https://issuer.example/.well-known/varketa-acting-principal": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "issuer": "https://issuer.example",
+          "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+          "signing_alg_values_supported": [
+            "ES256",
+            "EdDSA"
+          ],
+          "ver_values_supported": [
+            4,
+            5
+          ]
+        }
+      }
+    ],
+    "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "keys": [
+            {
+              "use": "sig",
+              "kty": "EC",
+              "kid": "v3-current",
+              "crv": "P-256",
+              "alg": "ES256",
+              "x": "KczrvPvJHomI3wyaOUKboMUSnkJzLEEqShaCUkFlz9I",
+              "y": "PrajkBB-jjuS10rKvkltJs0ZnMm77aPkb8BNFubFgAg"
+            },
+            {
+              "use": "sig",
+              "kty": "OKP",
+              "kid": "v3-previous",
+              "crv": "Ed25519",
+              "alg": "EdDSA",
+              "x": "8qsSAPdm3qVn9v8uHs1-48XVp3lU2FHfddO2sdBdIcQ"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "now": 1767225610,
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLWN1cnJlbnQiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3Rfa2luZCI6ImZ1dHVyZV9ydW4iLCJhZG9wdGVyIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlIiwiYmR5IjoiV2sxanVtZUZLY0NOcFlBeEQxX183Q3FaWVZwUk1EalFldHFjTXZFRXdPYyIsImV4cCI6MTc2NzIyNTcyMCwiZ3JhbnQiOiI1NTU1NTU1NS01NTU1LTQ1NTUtODU1NS01NTU1NTU1NTU1NTUiLCJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkuYWRvcHRlci5leGFtcGxlL3YxL3JlY29yZHM_bGltaXQ9MTAiLCJpYXQiOjE3NjcyMjU2MDAsImlzcyI6Imh0dHBzOi8vaXNzdWVyLmV4YW1wbGUiLCJqdGkiOiJqdGktdW5rbm93bi1raW5kLXdpdGhvdXQtcnVuIiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImRlbGVnYXRlZCIsInNjb3BlX2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGVzIjpbInJlY29yZHMucmVhZCIsInJlY29yZHMud3JpdGUiXSwidGVuYW50IjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwidG9vbF9kZWNsYXJlZCI6ImNyZWF0ZV9yZWNvcmQiLCJ0b29sX3F1YWxpZmllZCI6InIxLXJlY29yZHMtY3JlYXRlX3JlY29yZCIsInZlciI6NX0.IIe6BbqEa1LccJOV7XeQxynVwbVkGPttye2mLPjQebAE0Gv5nX7FdiWZwKSsZ6A92zg7eZ4egyN5cfGUuIPvGw",
+      "expect": {
+        "accept": true,
+        "identity": {
+          "act_kind": "future_run",
+          "adopter": "11111111-1111-4111-8111-111111111111",
+          "grant": "55555555-5555-4555-8555-555555555555",
+          "persona": "support",
+          "presence": "delegated",
+          "scopes": [
+            "records.read",
+            "records.write"
+          ],
+          "tenant": "22222222-2222-4222-8222-222222222222"
+        }
+      }
+    }
+  ]
+}

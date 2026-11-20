@@ -79,7 +79,7 @@ be an integer excluding booleans. An invalid sample is an operational error. The
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `discovery` and `on_behalf` require claim set 5 or later, and `watch_run` and a present `run_owner` require claim set 6 or later; `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` (§4); from claim set 6 a present `scope_id` is a string (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `act_kind` is a non-empty string and a present `run_id` a nonblank string; `person`, `discovery` and `on_behalf` carry no `run_id`, and `peer_run`, `automation_run`, `eval_run` and `watch_run` carry one; `on_behalf` and `watch_run` have `presence` `delegated` (§4); `discovery` and `on_behalf` require claim set 5 or later, and `watch_run` and a present `run_owner` require claim set 6 or later; from claim set 6 an assertion containing `run_id` contains neither top-level `sub` nor `sub_id` (§4); `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` on an `automation_run`, `eval_run` or `watch_run` (§4); from claim set 6 a present `scope_id` is a string (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 The protected header and claims each have a maximum JSON depth of 32, counting the root object as level 1.
@@ -118,10 +118,17 @@ An accepted assertion exposes:
 - `adopter`, `persona`, `scopes`, `act_kind` (`person`, `peer_run`, `automation_run`, `eval_run`, from claim set 5
   `discovery` and `on_behalf`, and from claim set 6 `watch_run`, below), `presence` (`delegated`, `interactive`,
   `confirmed`), `run_id` (absent on a person's own act), `approved_by`.
+  Every accepted assertion states its act: `act_kind` is a non-empty string, and its run follows its kind, as Varketa's
+  issuer signs it. `person`, `discovery` and `on_behalf` carry no `run_id`; `peer_run`, `automation_run`, `eval_run`
+  and `watch_run` carry one, a string with at least one character outside Unicode 17.0 White_Space (as for
+  `approved_by.sub`, below); `on_behalf` and `watch_run` have `presence` `delegated`. A kind this spec does not name
+  passes, with or without a `run_id` (a nonblank string when present), and is exposed as signed: key your policy on the
+  kinds you know. Any other shape is refused as `malformed` at check 17 before replay, at every claim set. This
+  departs from earlier releases, which accepted an assertion with no `act_kind` in claim set 3 or 4: Varketa's issuer
+  never signs one, so a verifier now refuses it rather than expose an act it cannot name.
   For an accepted claim-set version earlier than 5, `act_kind: "discovery"` or `act_kind: "on_behalf"` is
   refused as `malformed` at check 17 before replay, and so are `act_kind: "watch_run"` and a present `run_owner`
-  at a version earlier than 6. An absent `act_kind` in claim set 3 or 4 remains allowed when the other checks pass.
-  Check 8 still refuses any unsupported version before this check.
+  at a version earlier than 6. Check 8 still refuses any unsupported version before this check.
 - `act_kind` `discovery` (claim set 5): Varketa reading your API's own surface, such as an MCP `tools/list` or your
   OpenAPI document, to learn what it offers. It names no tool and no run. Its `sub` is `varketa-discovery` when no
   grant made the request; otherwise `grant` names the grant. Act on no customer's data for it.
@@ -139,8 +146,8 @@ An accepted assertion exposes:
   authorize it as the person present. It is `{"sub": "<subject>"}` or `{"sub": "<subject>", "sub_id": <iss_sub>}`.
   Its `sub` is the subject this adopter receives as `sub` on that person's own acts. Its `sub_id` is your own subject
   for the run-as grant, an exact `iss_sub` as below, present only where Varketa holds one. A present `run_owner` has
-  exactly those members, `sub` a non-empty string, and only beside a `run_id`, or the assertion is refused `malformed`
-  (check 17), whatever the `act_kind`; below claim set 6 any `run_owner` is refused the same way.
+  exactly those members, with a nonblank string `sub`, and is allowed only beside a `run_id` on an `automation_run`,
+  `eval_run` or `watch_run`; check 17 refuses it as `malformed` otherwise, including below claim set 6.
 - `sub_id` (claim set 4): the acting person as YOUR identity provider names them, an
   [RFC 9493](https://www.rfc-editor.org/rfc/rfc9493) subject identifier `{"format": "iss_sub", "iss": "<your IdP's
   issuer>", "sub": "<its subject>"}`. It is present when Varketa holds the acting grant's subject at your provider
@@ -150,7 +157,8 @@ An accepted assertion exposes:
   `iss_sub` and `iss` and `sub` non-empty strings, or the assertion is refused `malformed` (check 17): a verifier
   never exposes half a subject. It is judged the same way whatever the `ver`. On a run (`run_id` present), claim sets
   4 and 5 carry here the subject of the grant the run acts under, its owner, who is accountable for it and is not
-  present; read `act_kind`. From claim set 6 a run carries it only inside `run_owner`.
+  present; read `act_kind`. From claim set 6 a run carries it only inside `run_owner`: an assertion containing
+  `run_id` is refused at check 17 if a top-level `sub` or `sub_id` is present, even with a null value.
 - `scope_id` (exposed from claim set 6): the Varketa scope inside `tenant` that the call was made at, as Varketa
   signed it: the org itself, or a scope within it. It is opaque: compare it only together with `tenant`, and still
   authorize every record against `tenant`. Record it, or apply your own policy to it. A verifier exposes it only as a

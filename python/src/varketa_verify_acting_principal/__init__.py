@@ -62,6 +62,10 @@ _MAX_ASSERTION_DEPTH = 32
 _MAX_APPROVAL_LINKS = 8
 # Unicode 17.0 White_Space, pinned to keep the wire rule independent of runtime strip behavior.
 _NON_WHITESPACE = re.compile(r"[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]")
+# The act kinds that name a run, the kinds that never do, and the run kinds with an accountable owner (check 17).
+_RUN_KINDS = frozenset({"peer_run", "automation_run", "eval_run", "watch_run"})
+_NO_RUN_KINDS = frozenset({"person", "discovery", "on_behalf"})
+_OWNER_RUN_KINDS = frozenset({"automation_run", "eval_run", "watch_run"})
 _B64URL = re.compile(r"[A-Za-z0-9_-]*")
 _NUMERIC_HOST_LABEL = re.compile(r"(?:[0-9]+|0x[0-9a-f]*)")
 
@@ -570,19 +574,34 @@ class Verifier:
             return {"format": "iss_sub", "iss": v["iss"], "sub": v["sub"]}
 
         sub_id = iss_sub(c["sub_id"]) if "sub_id" in c else None
-        # A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty
-        # string and sub_id an exact iss_sub, beside a run_id, whatever the act_kind.
+        act_kind, run_id, has_run = s("act_kind"), s("run_id"), "run_id" in c
+        # A PRESENT run_owner names the accountable person of an automation's, an evaluation's or a watch's run, and
+        # only theirs: exactly {sub} or {sub, sub_id}, sub a nonblank string and sub_id an exact iss_sub, beside a run_id.
         run_owner: Optional[dict[str, Any]] = None
         if "run_owner" in c:
             v = c["run_owner"]
-            if (not isinstance(v, dict) or not s("run_id")
-                    or not isinstance(v.get("sub"), str) or not v["sub"]
+            if (not isinstance(v, dict) or not run_id or act_kind not in _OWNER_RUN_KINDS
+                    or not isinstance(v.get("sub"), str) or not _NON_WHITESPACE.search(v["sub"])
                     or len(v) != (2 if "sub_id" in v else 1)):
                 raise VerificationError("malformed")
             run_owner = {"sub": v["sub"]}
             if "sub_id" in v:
                 run_owner["sub_id"] = iss_sub(v["sub_id"])
-        act_kind = s("act_kind")
+        # The act is stated and its run follows its kind, at every claim set: Varketa's issuer never signs another
+        # shape. A kind this spec does not name passes, with or without a run. Blank is Unicode's White_Space, never
+        # str.strip(), which also strips U+001C to U+001F.
+        if not act_kind:
+            raise VerificationError("malformed")
+        if has_run and (run_id is None or not _NON_WHITESPACE.search(run_id)):
+            raise VerificationError("malformed")
+        if act_kind in (_NO_RUN_KINDS if has_run else _RUN_KINDS):
+            raise VerificationError("malformed")
+        if act_kind in ("on_behalf", "watch_run") and s("presence") != "delegated":
+            raise VerificationError("malformed")
+        # From claim set 6 a run names its accountable person in run_owner alone: a top-level sub or sub_id beside a
+        # run_id, null included, is malformed.
+        if ver >= 6 and has_run and ("sub" in c or "sub_id" in c):
+            raise VerificationError("malformed")
         # A kind or claim newer than the signed claim set is malformed: discovery and on_behalf need 5, watch_run and
         # run_owner 6.
         if ((ver < 5 and act_kind in ("discovery", "on_behalf"))

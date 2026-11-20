@@ -75,6 +75,23 @@
     "act-not-an-object",
     "act-no-iss",
     "act-empty-sub",
-    "act-extra-member"
+    "act-extra-member",
+    "act-kind-absent",
+    "act-kind-empty",
+    "r13-earlier-non-string-kind",
+    "person-with-run",
+    "person-numeric-run",
+    "run-id-blank",
+    "peer_run-without-run",
+    "automation_run-without-run",
+    "eval_run-without-run",
+    "discovery-with-run",
+    "on-behalf-with-run",
+    "on-behalf-interactive",
+    "discovery-below-its-claim-set",
+    "on-behalf-below-its-claim-set",
+    "run-id-file-separator",
+    "unknown-kind-with-run",
+    "unknown-kind-without-run"
   ]
 }
