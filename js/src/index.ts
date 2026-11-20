@@ -29,6 +29,10 @@ const MAX_APPROVAL_LINKS = 8;
 // Unicode 17.0 White_Space, pinned to keep the wire rule independent of runtime trim behavior.
 const NON_WHITESPACE = /[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u;
 export const METADATA_PATH = "/.well-known/varketa-acting-principal";
+/** The act kinds that name a run, the kinds that never do, and the run kinds with an accountable owner (check 17). */
+const RUN_KINDS: ReadonlySet<string> = new Set(["peer_run", "automation_run", "eval_run", "watch_run"]);
+const NO_RUN_KINDS: ReadonlySet<string> = new Set(["person", "discovery", "on_behalf"]);
+const OWNER_RUN_KINDS: ReadonlySet<string> = new Set(["automation_run", "eval_run", "watch_run"]);
 
 /** One code per refusal, in the spec's order. */
 export type Code =
@@ -394,19 +398,33 @@ export class Verifier {
       return { format: "iss_sub", iss: v.iss, sub: v.sub };
     };
     const subId = Object.hasOwn(c, "sub_id") ? issSub(c.sub_id) : undefined;
-    // A PRESENT run_owner names a run's owner, and only a run's: exactly {sub} or {sub, sub_id}, sub a non-empty string
-    // and sub_id an exact iss_sub, beside a run_id, whatever the act_kind.
+    const actKind = str("act_kind"), runID = str("run_id"), hasRun = Object.hasOwn(c, "run_id");
+    // A PRESENT run_owner names the accountable person of an automation's, an evaluation's or a watch's run, and only
+    // theirs: exactly {sub} or {sub, sub_id}, sub a nonblank string and sub_id an exact iss_sub, beside a run_id.
     let runOwner: RunOwner | undefined;
     if (Object.hasOwn(c, "run_owner")) {
       const v = c.run_owner as Record<string, unknown> | null;
-      if (typeof v !== "object" || v === null || Array.isArray(v) || !str("run_id") || typeof v.sub !== "string"
-        || v.sub === "" || Object.keys(v).length !== (Object.hasOwn(v, "sub_id") ? 2 : 1)) {
+      if (typeof v !== "object" || v === null || Array.isArray(v) || !runID || !OWNER_RUN_KINDS.has(actKind ?? "")
+        || typeof v.sub !== "string" || !NON_WHITESPACE.test(v.sub)
+        || Object.keys(v).length !== (Object.hasOwn(v, "sub_id") ? 2 : 1)) {
         throw new VerificationError("malformed");
       }
       runOwner = { sub: v.sub };
       if (Object.hasOwn(v, "sub_id")) runOwner.sub_id = issSub(v.sub_id);
     }
-    const actKind = str("act_kind");
+    // The act is stated and its run follows its kind, at every claim set: Varketa's issuer never signs another shape.
+    // A kind this spec does not name passes, with or without a run.
+    if (!actKind) throw new VerificationError("malformed");
+    if (hasRun && (runID === undefined || !NON_WHITESPACE.test(runID))) throw new VerificationError("malformed");
+    if (hasRun ? NO_RUN_KINDS.has(actKind) : RUN_KINDS.has(actKind)) throw new VerificationError("malformed");
+    if ((actKind === "on_behalf" || actKind === "watch_run") && str("presence") !== "delegated") {
+      throw new VerificationError("malformed");
+    }
+    // From claim set 6 a run names its accountable person in run_owner alone: a top-level sub or sub_id beside a
+    // run_id, null included, is malformed.
+    if (ver >= 6 && hasRun && (Object.hasOwn(c, "sub") || Object.hasOwn(c, "sub_id"))) {
+      throw new VerificationError("malformed");
+    }
     // A kind or claim newer than the signed claim set is malformed: discovery and on_behalf need 5, watch_run and run_owner 6.
     if ((ver < 5 && (actKind === "discovery" || actKind === "on_behalf"))
       || (ver < 6 && (actKind === "watch_run" || runOwner !== undefined))) throw new VerificationError("malformed");
