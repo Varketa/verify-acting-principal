@@ -19,6 +19,9 @@ const REFETCH_INTERVAL = 15;
 // Whether now is within the refetch floor of a discovery that started at `start`. A clock that has stepped back before
 // start is not within it, so a wall-clock correction never holds the floor shut (SPEC §2.3, §2.4).
 const withinFloor = (now: number, start: number) => now >= start && now - start < REFETCH_INTERVAL;
+// Whether a document fetched at `at` and cacheable for `maxAge` seconds is past its lifetime at now. A clock that has
+// stepped back before the fetch cannot say how long the document has been held, so it is past it (SPEC §2.3).
+const expired = (now: number, at: number, maxAge: number) => now < at || now - at >= maxAge;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
 const MAX_ASSERTION_DEPTH = 32;
@@ -254,7 +257,7 @@ export class Verifier {
   async #reload(now: number): Promise<boolean> {
     let jwksUri = this.#jwksUri;
     let metadataMaxAge: number | undefined;
-    if (jwksUri === "" || now - this.#mdFetchedAt >= this.#mdMaxAge) {
+    if (jwksUri === "" || expired(now, this.#mdFetchedAt, this.#mdMaxAge)) {
       const md = await this.#get(this.#o.issuer + METADATA_PATH);
       if (!md) return false;
       let doc: Record<string, unknown>;
@@ -306,7 +309,7 @@ export class Verifier {
     if (header.typ !== TYP) throw new VerificationError("typ");
     const alg = typeof header.alg === "string" ? ALGORITHMS[header.alg] : undefined;
     if (!alg || !Object.hasOwn(ALGORITHMS, header.alg as string)) throw new VerificationError("alg");
-    if (this.#keys === null || now - this.#fetchedAt >= this.#maxAge || now - this.#mdFetchedAt >= this.#mdMaxAge) {
+    if (this.#keys === null || expired(now, this.#fetchedAt, this.#maxAge) || expired(now, this.#mdFetchedAt, this.#mdMaxAge)) {
       if (!this.#loading && this.#failedAt !== null && withinFloor(now, this.#failedAt)) {
         throw new VerificationError("jwks_unavailable");
       }
@@ -331,8 +334,8 @@ export class Verifier {
     }
     // A network wait may itself consume the documents' positive cache lifetime.
     const keyAt = this.#readClock();
-    if ((this.#mdMaxAge > 0 && keyAt - this.#mdFetchedAt >= this.#mdMaxAge) ||
-        (this.#maxAge > 0 && keyAt - this.#fetchedAt >= this.#maxAge)) throw new VerificationError("jwks_unavailable");
+    if ((this.#mdMaxAge > 0 && expired(keyAt, this.#mdFetchedAt, this.#mdMaxAge)) ||
+        (this.#maxAge > 0 && expired(keyAt, this.#fetchedAt, this.#maxAge))) throw new VerificationError("jwks_unavailable");
     if (!jwk) throw new VerificationError("kid");
     // A signature part that is not base64url is malformed before the key's type is judged, as in the Python verifier.
     const sig = b64url(parts[2]);

@@ -342,6 +342,24 @@ test("malformed UTF-8 in a header cannot be repaired into JSON", async () => {
     (e) => e instanceof VerificationError && e.code === "malformed");
 });
 
+for (const document of ["metadata", "keys"] as const) {
+  // SPEC §2.3 "never past it": a clock earlier than the fetch cannot say how long the document has been held, so the
+  // set (and a rotated-out key in it) is refetched rather than trusted for the length of the step.
+  test(`a clock stepped back before the ${document} fetch keeps it fresh no longer`, async () => {
+    const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
+    const url = manifest.config.issuer + (document === "metadata" ? "/.well-known/varketa-acting-principal" : "/.well-known/varketa-acting-principal/jwks.json");
+    c.fetches[url].push({ status: 503 });
+    const h = harness(c), s = c.steps[0];
+    const req = { method: s.request.method, url: s.request.url, body: Buffer.from(s.request.body_b64url, "base64url"), assertion: s.assertion };
+    h.setNow(s.now);
+    await h.v.verify(req);
+    const previous: Case = JSON.parse(readFileSync(join(dir, "cases", "previous-key.json"), "utf8"));
+    h.setNow(s.now - 5);
+    await assert.rejects(h.v.verify({ ...req, assertion: previous.steps[0].assertion }), (e) => e instanceof VerificationError && e.code === "jwks_unavailable");
+    assert.equal(h.counts.get(url), 2);
+  });
+}
+
 test("discovery that expires during its fetch is unavailable", async () => {
   const c: Case = JSON.parse(readFileSync(join(dir, "cases", "good.json"), "utf8"));
   const s = c.steps[0];

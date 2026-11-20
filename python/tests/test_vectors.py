@@ -358,6 +358,21 @@ class Vectors(unittest.TestCase):
                 self.assertEqual(h.verify(dict(previous, now=step["now"] + 1))[1], "jwks_unavailable")
                 self.assertEqual(h.counts[url], 2)
 
+    def test_a_clock_stepped_back_before_a_fetch_keeps_no_document_fresh(self) -> None:
+        # SPEC §2.3 "never past it": a clock earlier than the fetch cannot say how long the document has been held, so
+        # a set (and a rotated-out key in it) is refetched rather than trusted for the length of the step.
+        for suffix in ("", "/jwks.json"):
+            with self.subTest(document=suffix):
+                case = json.loads((DIR / "cases" / "good.json").read_text())
+                url = MANIFEST["config"]["issuer"] + "/.well-known/varketa-acting-principal" + suffix
+                case["fetches"][url].append({"status": 503})
+                h = Harness(case)
+                step = case["steps"][0]
+                self.assertEqual(h.verify(step)[1], "")
+                previous = json.loads((DIR / "cases" / "previous-key.json").read_text())["steps"][0]
+                self.assertEqual(h.verify(dict(previous, now=step["now"] - 5))[1], "jwks_unavailable")
+                self.assertEqual(h.counts[url], 2)
+
     def test_discovery_that_expires_during_its_fetch_is_unavailable(self) -> None:
         case = json.loads((DIR / "cases" / "good.json").read_text())
         h = Harness(case)
