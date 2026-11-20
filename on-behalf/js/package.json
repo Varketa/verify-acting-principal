@@ -1,0 +1,43 @@
+{
+  "name": "@varketa/mcp-on-behalf",
+  "version": "0.0.0",
+  "description": "Call a Varketa tenant's MCP door as your signed-in customer, from your backend. Server only.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Varketa/verify-acting-principal.git",
+    "directory": "on-behalf/js"
+  },
+  "homepage": "https://github.com/Varketa/verify-acting-principal/tree/main/on-behalf#readme",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./clerk": {
+      "types": "./dist/clerk.d.ts",
+      "default": "./dist/clerk.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc --noEmit -p tsconfig.json && tsc -p test/tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "varketa": {
+    "fixtures": "v0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/node": "^22.18.0"
+  }
+}

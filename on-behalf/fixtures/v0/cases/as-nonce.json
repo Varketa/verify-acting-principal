@@ -1,0 +1,138 @@
+{
+  "name": "as-nonce",
+  "description": "The authorization server's nonce challenge is answered once, with a fresh assertion and subject.",
+  "steps": [
+    {
+      "do": "credential",
+      "customer": "sess_a",
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$assertion",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 400,
+            "body": {
+              "error": "use_dpop_nonce"
+            },
+            "headers": {
+              "DPoP-Nonce": "as-n-1"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$assertion",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+            },
+            "dpop": {
+              "nonce": "as-n-1",
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "actor-1",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$subject",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+              "actor_token": "actor-1",
+              "actor_token_type": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            "dpop": {
+              "nonce": "as-n-1",
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 400,
+            "body": {
+              "error": "use_dpop_nonce"
+            },
+            "headers": {
+              "DPoP-Nonce": "as-n-2"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$subject",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+              "actor_token": "actor-1",
+              "actor_token_type": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            "dpop": {
+              "nonce": "as-n-2",
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "customer-1",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/oauth/token",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "customer-1",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+              "resource": "https://tenant.varketa.example/mcp"
+            },
+            "dpop": {
+              "nonce": "as-n-2",
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "door-1",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        }
+      ],
+      "expect": {
+        "accept": true,
+        "access_token": "door-1"
+      }
+    }
+  ]
+}

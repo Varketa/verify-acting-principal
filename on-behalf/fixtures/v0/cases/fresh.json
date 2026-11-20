@@ -1,0 +1,239 @@
+{
+  "name": "fresh",
+  "description": "A fresh credential mints all three hops although a cached one is live, and replaces it.",
+  "steps": [
+    {
+      "do": "credential",
+      "customer": "sess_a",
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$assertion",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "actor-1",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$subject",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+              "actor_token": "actor-1",
+              "actor_token_type": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "customer-1",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/oauth/token",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "customer-1",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+              "resource": "https://tenant.varketa.example/mcp"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "door-1",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        }
+      ],
+      "expect": {
+        "accept": true,
+        "access_token": "door-1"
+      }
+    },
+    {
+      "do": "credential",
+      "customer": "sess_a",
+      "fresh": true,
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$assertion",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "actor-2",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$subject",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+              "actor_token": "actor-2",
+              "actor_token_type": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "customer-2",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/oauth/token",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "customer-2",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+              "resource": "https://tenant.varketa.example/mcp"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "door-2",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        }
+      ],
+      "expect": {
+        "accept": true,
+        "access_token": "door-2"
+      }
+    },
+    {
+      "do": "credential",
+      "customer": "sess_a",
+      "exchanges": [],
+      "expect": {
+        "accept": true,
+        "access_token": "door-2"
+      }
+    },
+    {
+      "do": "credential",
+      "customer": "sess_b",
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/login/token-exchange",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "$subject",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+              "actor_token": "actor-2",
+              "actor_token_type": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "customer-3",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "https://varketa.example/oauth/token",
+            "form": {
+              "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+              "subject_token": "customer-3",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+              "resource": "https://tenant.varketa.example/mcp"
+            },
+            "dpop": {
+              "nonce": null,
+              "ath": false
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "access_token": "door-3",
+              "token_type": "DPoP",
+              "expires_in": 300
+            }
+          }
+        }
+      ],
+      "expect": {
+        "accept": true,
+        "access_token": "door-3"
+      }
+    }
+  ]
+}
