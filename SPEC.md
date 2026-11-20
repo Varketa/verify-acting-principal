@@ -77,7 +77,7 @@ be an integer excluding booleans. An invalid sample is an operational error. The
 | 14 | `htm` equals the request method | `htm` |
 | 15 | `htu` equals the request URL as the caller sent it (map it back through your proxies first) | `htu` |
 | 16 | `bdy` equals the base64url (unpadded) SHA-256 of the raw body bytes | `bdy` |
-| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `discovery` and `on_behalf` require claim set 5 or later, and `watch_run` and a present `run_owner` require claim set 6 or later; `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
+| 17 | `jti` and `tenant` are present, and `sub` or `grant` is (Varketa never signs without them); a present `sub_id` is exactly an RFC 9493 `iss_sub` (§4); `discovery` and `on_behalf` require claim set 5 or later, and `watch_run` and a present `run_owner` require claim set 6 or later; `act` is present exactly when `act_kind` is `on_behalf`, and is then exactly `{sub, iss}` (§4); a present `run_owner` is exactly `{sub}` or `{sub, sub_id}` beside a `run_id` (§4); from claim set 6 a present `scope_id` is a string (§4); a present `approved_by` is a valid approval chain (§4) | `malformed` |
 | 18 | The replay record (§5) | `replay` |
 
 The protected header and claims each have a maximum JSON depth of 32, counting the root object as level 1.
@@ -149,6 +149,13 @@ An accepted assertion exposes:
   never exposes half a subject. It is judged the same way whatever the `ver`. On a run (`run_id` present), claim sets
   4 and 5 carry here the subject of the grant the run acts under, its owner, who is accountable for it and is not
   present; read `act_kind`. From claim set 6 a run carries it only inside `run_owner`.
+- `scope_id` (exposed from claim set 6): the Varketa scope inside `tenant` that the call was made at, as Varketa
+  signed it: the org itself, or a scope within it. It is opaque: compare it only together with `tenant`, and still
+  authorize every record against `tenant`. Record it, or apply your own policy to it. A verifier exposes it only as a
+  non-empty string, and it is absent where Varketa signs no scope: on discovery, on the probe, and on any call made at
+  no scope. From claim set 6 a present `scope_id` that is not a string is refused `malformed` (check 17). Claim sets 3
+  to 5 sign it as well, and a verifier does not expose it there. Not signed: whether the scope is the org itself or a
+  scope within it, and the scope's name.
 - `probe: true` on Varketa's verification probe only. A probe is verified like any other assertion, carries a fixed
   synthetic subject rather than a real person's, and reaches only a read. Act on no real data for it.
 
@@ -163,6 +170,9 @@ and only an optional `act` member containing the next link. The verifier exposes
 including repeated grant values. It refuses any other shape as `malformed` at check 17 before recording replay.
 Earlier verifier versions accepted some signed values outside this shape. The new check accepts the shape emitted by
 the supported typed Varketa issuer. It does not establish whether the approvals were authorized or independent.
+
+Varketa also signs, on a call to a tool, `tool_qualified` (the tool's name as Varketa qualifies it) and
+`tool_declared` (its name as your API declares it). A verifier checks neither and does not expose them.
 
 Authorization against these values is your own policy.
 
@@ -204,7 +214,8 @@ accepts the next version accepts it. `v3`'s presents `ver` 4, `v4`'s `ver` 5 and
 
 ## 7. Versions
 
-`ver` 6 is the current claim set: claim set 5 plus the `act_kind` value `watch_run` and `run_owner` (§4). Claim set 5
+`ver` 6 is the current claim set: claim set 5 plus the `act_kind` value `watch_run`, `run_owner`, and `scope_id` as
+an exposed claim, a string when present (§4). Claim set 5
 is claim set 4 plus the `act_kind` values `discovery` and `on_behalf`, and `act`; claim set 4 is claim set 3 plus
 `sub_id`. A verifier accepts 3, 4, 5 and 6, and passes `vectors/v6`, `vectors/v5`, `vectors/v4` and `vectors/v3`
 (§6). A reader that upgrades to 6 without reading `run_owner` loses `sub_id` on runs whose owner Varketa holds an

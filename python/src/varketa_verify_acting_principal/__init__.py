@@ -596,6 +596,9 @@ class Verifier:
             actor = {"sub": v["sub"], "iss": v["iss"]}
         if "approved_by" in c and not _is_approval_chain(c["approved_by"]):
             raise VerificationError("malformed")
+        # From claim set 6 a PRESENT scope_id is a string (SPEC §4): exposed when non-empty, never in another shape.
+        if ver >= 6 and "scope_id" in c and not isinstance(c["scope_id"], str):
+            raise VerificationError("malformed")
         # LAST, after every other check: the record is the atomic step, an insert-if-absent on (iss, jti).
         # The record lives through the last accepted second, exp + 60 s inclusive: whole seconds, at least 1.
         if not self._store.set_if_absent(f"{self._issuer}\0{jti}", exp + _SKEW - at + 1, at):
@@ -616,4 +619,6 @@ class Verifier:
             identity["act"] = actor
         if run_owner is not None:
             identity["run_owner"] = run_owner
+        if ver >= 6 and isinstance(c.get("scope_id"), str) and c["scope_id"]:
+            identity["scope_id"] = c["scope_id"]
         return identity
