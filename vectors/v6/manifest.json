@@ -115,6 +115,9 @@
     "r13-owner-on-peer-run",
     "r13-future-kind-owner",
     "run-id-file-separator",
+    "run-id-byte-order-mark",
+    "run-owner-sub-file-separator",
+    "run-owner-sub-byte-order-mark",
     "unknown-kind-with-run",
     "unknown-kind-without-run"
   ]

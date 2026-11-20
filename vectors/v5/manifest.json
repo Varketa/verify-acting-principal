@@ -91,6 +91,7 @@
     "discovery-below-its-claim-set",
     "on-behalf-below-its-claim-set",
     "run-id-file-separator",
+    "run-id-byte-order-mark",
     "unknown-kind-with-run",
     "unknown-kind-without-run"
   ]

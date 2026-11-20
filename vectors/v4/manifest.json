@@ -72,6 +72,7 @@
     "automation_run-without-run",
     "eval_run-without-run",
     "run-id-file-separator",
+    "run-id-byte-order-mark",
     "unknown-kind-with-run",
     "unknown-kind-without-run"
   ]
