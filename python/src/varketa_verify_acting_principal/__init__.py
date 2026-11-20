@@ -50,6 +50,12 @@ def _within_floor(now: int, start: int) -> bool:
     """Whether now is within the refetch floor of a discovery that started at start. A clock that has stepped back
     before start is not within it, so a wall-clock correction never holds the floor shut (SPEC §2.3, §2.4)."""
     return start <= now < start + _REFETCH_INTERVAL
+
+
+def _expired(now: int, at: int, max_age: int) -> bool:
+    """Whether a document fetched at `at` and cacheable for max_age seconds is past its lifetime at now. A clock that
+    has stepped back before the fetch cannot say how long the document has been held, so it is past it (SPEC §2.3)."""
+    return now < at or now - at >= max_age
 _FETCH_TIMEOUT = 10
 _MAX_DOCUMENT_BYTES = 64 * 1024
 _MAX_ASSERTION_DEPTH = 32
@@ -379,7 +385,7 @@ class Verifier:
         """One discovery: the fetches run outside the lock, and the result is published under it."""
         with self._lock:
             jwks_uri = self._jwks_uri
-            need_metadata = not jwks_uri or now - self._md_fetched_at >= self._md_max_age
+            need_metadata = not jwks_uri or _expired(now, self._md_fetched_at, self._md_max_age)
         metadata = None
         if need_metadata:
             md = self._get(self._issuer + METADATA_PATH)
@@ -411,8 +417,8 @@ class Verifier:
         return True
 
     def _stale(self, now: int) -> bool:
-        return self._keys is None or now - self._fetched_at >= self._max_age \
-            or now - self._md_fetched_at >= self._md_max_age
+        return self._keys is None or _expired(now, self._fetched_at, self._max_age) \
+            or _expired(now, self._md_fetched_at, self._md_max_age)
 
     def _flight_for(self, now: int, refetch: bool) -> tuple[Optional[_Flight], bool]:
         """Under the lock: the discovery to wait on and whether this caller leads it. A flight already under way is
@@ -471,8 +477,8 @@ class Verifier:
             jwk = self._keys.get(kid) if self._keys else None
             # The clock again, after any wait: a discovery that expired during its fetch is unavailable.
             at = self._read_clock()
-            if (self._md_max_age > 0 and at - self._md_fetched_at >= self._md_max_age) \
-                    or (self._max_age > 0 and at - self._fetched_at >= self._max_age):
+            if (self._md_max_age > 0 and _expired(at, self._md_fetched_at, self._md_max_age)) \
+                    or (self._max_age > 0 and _expired(at, self._fetched_at, self._max_age)):
                 raise VerificationError("jwks_unavailable")
             return jwk
 

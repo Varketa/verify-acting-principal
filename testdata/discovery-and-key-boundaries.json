@@ -1184,11 +1184,11 @@
               "tenant": "22222222-2222-4222-8222-222222222222"
             },
             "fetch_counts": {
-              "https://issuer.example/.well-known/varketa-acting-principal": 1,
+              "https://issuer.example/.well-known/varketa-acting-principal": 2,
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 3
             }
           },
-          "label": "a clock stepped back before the refetch is outside its floor: the rotated-in key is fetched and accepted",
+          "label": "a clock stepped back before both fetches keeps neither document fresh and is outside the floor: discovery runs again and the rotated-in key is accepted",
           "input": "rotated-in"
         }
       ]
