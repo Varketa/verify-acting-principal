@@ -214,7 +214,8 @@ accepts the next version accepts it. `v3`'s presents `ver` 4, `v4`'s `ver` 5 and
 
 ## 7. Versions
 
-`ver` 6 is the current claim set: claim set 5 plus the `act_kind` value `watch_run` and `run_owner` (§4). Claim set 5
+`ver` 6 is the current claim set: claim set 5 plus the `act_kind` value `watch_run`, `run_owner`, and `scope_id` as
+an exposed claim, a string when present (§4). Claim set 5
 is claim set 4 plus the `act_kind` values `discovery` and `on_behalf`, and `act`; claim set 4 is claim set 3 plus
 `sub_id`. A verifier accepts 3, 4, 5 and 6, and passes `vectors/v6`, `vectors/v5`, `vectors/v4` and `vectors/v3`
 (§6). A reader that upgrades to 6 without reading `run_owner` loses `sub_id` on runs whose owner Varketa holds an
