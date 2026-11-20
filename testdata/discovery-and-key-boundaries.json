@@ -1126,7 +1126,7 @@
         ],
         "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
           "jwks",
-          "jwks",
+          "unavailable",
           "jwks-rotated"
         ]
       },
@@ -1156,7 +1156,7 @@
           "input": "good"
         },
         {
-          "now": 1767225621,
+          "now": 1767225630,
           "expect": {
             "accept": false,
             "code": "kid",
@@ -1165,11 +1165,11 @@
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 2
             }
           },
-          "label": "an unsigned unknown kid spends the refetch; the set is unchanged",
+          "label": "an unsigned unknown kid spends the refetch, which fails; the still-fresh set is kept",
           "input": "throwaway-kid"
         },
         {
-          "now": 1767225590,
+          "now": 1767225625,
           "expect": {
             "accept": true,
             "identity": {
@@ -1186,11 +1186,11 @@
               "scope_id": "33333333-3333-4333-8333-333333333333"
             },
             "fetch_counts": {
-              "https://issuer.example/.well-known/varketa-acting-principal": 2,
+              "https://issuer.example/.well-known/varketa-acting-principal": 1,
               "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": 3
             }
           },
-          "label": "a clock stepped back before both fetches keeps neither document fresh and is outside the floor: discovery runs again and the rotated-in key is accepted",
+          "label": "a clock stepped back after the set's fetch but before the failed refetch leaves the set fresh and is outside the unknown-kid floor: the rotated-in key is fetched and accepted",
           "input": "rotated-in"
         }
       ]
