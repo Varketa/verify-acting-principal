@@ -1092,7 +1092,8 @@
                 "records.write"
               ],
               "sub": "user-7",
-              "tenant": "22222222-2222-4222-8222-222222222222"
+              "tenant": "22222222-2222-4222-8222-222222222222",
+              "scope_id": "33333333-3333-4333-8333-333333333333"
             },
             "fetch_counts": {
               "https://issuer.example/.well-known/varketa-acting-principal": 1,
@@ -1181,7 +1182,8 @@
                 "records.write"
               ],
               "sub": "user-7",
-              "tenant": "22222222-2222-4222-8222-222222222222"
+              "tenant": "22222222-2222-4222-8222-222222222222",
+              "scope_id": "33333333-3333-4333-8333-333333333333"
             },
             "fetch_counts": {
               "https://issuer.example/.well-known/varketa-acting-principal": 2,
