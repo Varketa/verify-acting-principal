@@ -43,6 +43,14 @@ through OIDC (trusted publishing).
 
 A failed job can be re-run. A re-run publishes nothing twice, and `read-back` judges what the registries hold.
 
+## The vectors
+
+Each set agents still generates (`v4` to `v6`) is agents' files byte for byte, and `release/vectors-digest.sh` digests
+those bytes; `v3` is kept as it was cut. Take a set by copying agents' files, never by re-encoding them: agents' generator (`vectorJSON`, agents#4248) writes every Unicode
+format character (category Cf, U+FEFF among them) as a lowercase `\uXXXX` escape, and one above U+FFFF as its
+surrogate pair, where a JSON encoder writes the raw character. `js/test/vectors.test.ts` refuses a raw Cf character or
+an uppercase escape in any vector file.
+
 ## Owner setup, once
 
 1. **Signing.** The person who tags adds their signing key (GPG or SSH) to their GitHub account, so GitHub verifies

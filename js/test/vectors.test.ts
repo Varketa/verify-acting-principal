@@ -54,6 +54,35 @@ test("the vector sets are the accepted claim sets, and package.json names them",
   assert.deepEqual(pkg.varketa, { claimSetVersions: [...SUPPORTED_VERSIONS], vectors: manifest.version });
 });
 
+// agents' generator (vectorJSON, agents#4248) writes every Unicode format character (category Cf, U+FEFF among them)
+// as a lowercase \u escape, one above U+FFFF as its surrogate pair, and v4 to v6 are its bytes. A file that holds a
+// raw Cf character, or spells an escape in uppercase, decodes alike but differs from agents' bytes and the set digest.
+function spellingFaults(text: string): string[] {
+  const faults = [...text.matchAll(/\p{Cf}/gu)].map((m) => `raw U+${m[0].codePointAt(0)?.toString(16).toUpperCase()}`);
+  for (const m of text.matchAll(/(?<!\\)(?:\\\\)*\\u([0-9a-fA-F]{4})/g)) {
+    const hex = m[1] ?? "";
+    if (hex !== hex.toLowerCase()) faults.push(`escape \\u${hex} is not lowercase`);
+  }
+  return faults;
+}
+
+test("a format character is spelled as the lowercase escape agents' generator writes", () => {
+  assert.deepEqual(spellingFaults('"a\ufeffb"'), ["raw U+FEFF"]);
+  assert.deepEqual(spellingFaults('"a\u{e0001}b"'), ["raw U+E0001"]);
+  assert.deepEqual(spellingFaults('"a\\uFEFFb"'), ["escape \\uFEFF is not lowercase"]);
+  assert.deepEqual(spellingFaults('"a\\\\uFEFFb"'), []);
+  assert.deepEqual(spellingFaults('"a\\ufeffb \\udb40\\udc01"'), []);
+  assert.equal(JSON.parse('"\\udb40\\udc01"'), "\u{e0001}");
+  let bom = 0;
+  for (const name of readdirSync(vectors, { recursive: true }).map(String).filter((n) => n.endsWith(".json"))) {
+    const text = readFileSync(join(vectors, name), "utf8");
+    assert.deepEqual(spellingFaults(text), [], name);
+    bom += text.split("\\ufeff").length - 1;
+  }
+  // Not vacuous: the seven byte-order-mark cases (v4, v5 and v6) hold the escape.
+  assert.ok(bom >= 7, `${bom} byte-order-mark escape(s) in vectors/; want at least 7`);
+});
+
 for (const set of SETS) {
   const setDir = join(vectors, set.version);
   const setManifest = JSON.parse(readFileSync(join(setDir, "manifest.json"), "utf8"));
