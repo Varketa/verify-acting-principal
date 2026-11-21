@@ -15,3 +15,12 @@
 - **Vectors** are versioned with the claim set (`vectors/v<ver>/`). Each library release names the vector version it
   passes.
 - **Next libraries:** Ruby (Rack/Rails) first, then Go (`net/http`) and Java/Kotlin (Spring); C#/.NET later.
+
+## Changes by release
+
+### 0.4.0
+
+- **Changed (security).** A clock that reads earlier than a document's fetch now counts that document as past its
+  max-age (SPEC §2.3; #30). In 0.3.0 and 0.2.1, both libraries kept a cached metadata document and JWK Set fresh while
+  the clock stood behind the fetch, so a key rotated out of the set stayed trusted past the cache lifetime. Affected:
+  0.3.0 and 0.2.1.
