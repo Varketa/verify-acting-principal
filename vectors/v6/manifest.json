@@ -119,6 +119,17 @@
     "run-owner-sub-file-separator",
     "run-owner-sub-byte-order-mark",
     "unknown-kind-with-run",
-    "unknown-kind-without-run"
+    "unknown-kind-without-run",
+    "approved-by-two-links",
+    "approved-by-eight-links",
+    "approved-by-byte-order-mark",
+    "approved-by-not-an-object",
+    "approved-by-empty",
+    "approved-by-nine-links",
+    "approved-by-blank-sub",
+    "approved-by-non-string-sub",
+    "approved-by-extra-member",
+    "approved-by-blank-inner-sub",
+    "approved-by-act-not-an-object"
   ]
 }

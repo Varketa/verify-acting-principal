@@ -1,0 +1,65 @@
+{
+  "name": "approved-by-nine-links",
+  "description": "approved_by is nine links: the chain holds at most eight. Refused.",
+  "fetches": {
+    "https://issuer.example/.well-known/varketa-acting-principal": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "issuer": "https://issuer.example",
+          "jwks_uri": "https://issuer.example/.well-known/varketa-acting-principal/jwks.json",
+          "signing_alg_values_supported": [
+            "ES256",
+            "EdDSA"
+          ],
+          "ver_values_supported": [
+            4
+          ]
+        }
+      }
+    ],
+    "https://issuer.example/.well-known/varketa-acting-principal/jwks.json": [
+      {
+        "status": 200,
+        "cache_control": "public, max-age=300",
+        "body": {
+          "keys": [
+            {
+              "use": "sig",
+              "kty": "EC",
+              "kid": "v3-current",
+              "crv": "P-256",
+              "alg": "ES256",
+              "x": "KczrvPvJHomI3wyaOUKboMUSnkJzLEEqShaCUkFlz9I",
+              "y": "PrajkBB-jjuS10rKvkltJs0ZnMm77aPkb8BNFubFgAg"
+            },
+            {
+              "use": "sig",
+              "kty": "OKP",
+              "kid": "v3-previous",
+              "crv": "Ed25519",
+              "alg": "EdDSA",
+              "x": "8qsSAPdm3qVn9v8uHs1-48XVp3lU2FHfddO2sdBdIcQ"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "now": 1767225610,
+      "request": {
+        "method": "POST",
+        "url": "https://api.adopter.example/v1/records?limit=10",
+        "body_b64url": "eyJ0aXRsZSI6IlF1YXJ0ZXJseSByZXBvcnQiLCJvd25lciI6InVzZXItNyJ9"
+      },
+      "assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6InYzLWN1cnJlbnQiLCJ0eXAiOiJ2YXJrZXRhLWFjdGluZy1wcmluY2lwYWwrand0In0.eyJhY3Rfa2luZCI6InBlcnNvbiIsImFkb3B0ZXIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhcHByb3ZlZF9ieSI6eyJhY3QiOnsiYWN0Ijp7ImFjdCI6eyJhY3QiOnsiYWN0Ijp7ImFjdCI6eyJhY3QiOnsiYWN0Ijp7InN1YiI6ImdyYW50LTkifSwic3ViIjoiZ3JhbnQtOCJ9LCJzdWIiOiJncmFudC03In0sInN1YiI6ImdyYW50LTYifSwic3ViIjoiZ3JhbnQtNSJ9LCJzdWIiOiJncmFudC00In0sInN1YiI6ImdyYW50LTMifSwic3ViIjoiZ3JhbnQtMiJ9LCJzdWIiOiJncmFudC0xIn0sImF1ZCI6Imh0dHBzOi8vYXBpLmFkb3B0ZXIuZXhhbXBsZSIsImJkeSI6IldrMWp1bWVGS2NDTnBZQXhEMV9fN0NxWllWcFJNRGpRZXRxY012RUV3T2MiLCJleHAiOjE3NjcyMjU3MjAsImh0bSI6IlBPU1QiLCJodHUiOiJodHRwczovL2FwaS5hZG9wdGVyLmV4YW1wbGUvdjEvcmVjb3Jkcz9saW1pdD0xMCIsImlhdCI6MTc2NzIyNTYwMCwiaXNzIjoiaHR0cHM6Ly9pc3N1ZXIuZXhhbXBsZSIsImp0aSI6Imp0aS1hcHByb3ZlZC1ieS1uaW5lLWxpbmtzIiwicGVyc29uYSI6InN1cHBvcnQiLCJwcmVzZW5jZSI6ImludGVyYWN0aXZlIiwic2NvcGVfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZXMiOlsicmVjb3Jkcy5yZWFkIiwicmVjb3Jkcy53cml0ZSJdLCJzdWIiOiJ1c2VyLTciLCJ0ZW5hbnQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ0b29sX2RlY2xhcmVkIjoiY3JlYXRlX3JlY29yZCIsInRvb2xfcXVhbGlmaWVkIjoicjEtcmVjb3Jkcy1jcmVhdGVfcmVjb3JkIiwidmVyIjo0fQ.b3_bGx2bd7BXK8IDWp3e1p2w6ozhjd7r9QoA5jhaRZaUjiVOp3kJj8z2OPAzYVvp1Qtaf7JxGImurP4ns2_MBg",
+      "expect": {
+        "accept": false,
+        "code": "malformed"
+      }
+    }
+  ]
+}
