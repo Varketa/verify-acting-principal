@@ -65,7 +65,7 @@
           "grant": "55555555-5555-4555-8555-555555555555",
           "persona": "support",
           "presence": "delegated",
-          "run_id": "﻿",
+          "run_id": "\ufeff",
           "scopes": [
             "records.read",
             "records.write"
